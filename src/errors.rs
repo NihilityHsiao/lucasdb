@@ -28,4 +28,13 @@ pub enum Errors {
 
     #[error("read data file eof")]
     ReadDataFileEOF,
+
+    #[error(transparent)]
+    DecodeError(#[from] prost::DecodeError),
+
+    #[error(transparent)]
+    EncodeError(#[from] prost::EncodeError),
+
+    #[error("invalid log record crc")]
+    InvalidLogRecordCrc,
 }

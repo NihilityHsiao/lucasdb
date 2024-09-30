@@ -99,7 +99,7 @@ impl Engine {
         let dir_path = &self.options.dir_path;
 
         // 对写入的record进行编码
-        let encoded_record = log_record.encode();
+        let encoded_record = log_record.encode()?;
         let encoded_record_len = encoded_record.len() as u64;
 
         // 获取到当前活跃文件
@@ -253,7 +253,7 @@ impl Engine {
                 if !ok {
                     return Err(Errors::IndexUpdateFailed);
                 }
-                offset += size;
+                offset += size as u64;
             }
 
             // 设置活跃文件的offset

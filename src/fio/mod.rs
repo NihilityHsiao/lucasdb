@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+
+use file_io::FileIO;
+
 use crate::prelude::*;
 
 pub mod file_io;
@@ -7,7 +11,11 @@ pub trait IOManager: Sync + Send {
     /// 从文件的指定位置读取数据
     fn read(&self, buf: &mut [u8], offset: u64) -> Result<usize>;
     /// 写入buf到字节数组中
-    fn write(&self, buf: &[u8])-> Result<usize>;
+    fn write(&self, buf: &[u8]) -> Result<usize>;
     /// 持久化数据
     fn sync(&self) -> Result<()>;
+}
+
+pub fn new_io_manager(file_name: PathBuf) -> Result<impl IOManager> {
+    FileIO::new(file_name)
 }
