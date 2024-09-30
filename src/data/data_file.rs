@@ -5,7 +5,7 @@ use parking_lot::RwLock;
 
 use crate::fio;
 
-use super::log_record::LogRecord;
+use super::log_record::{LogRecord, ReadLogRecord};
 
 /// 数据文件,实际存储多个key-value的文件
 /// 一个 DataFile 就对应一个文件
@@ -24,7 +24,10 @@ impl DataFile {
         let read_guard = self.write_off.read();
         *read_guard
     }
-
+    pub fn set_write_off(&self, offset: u64) {
+        let mut write_guard = self.write_off.write();
+        *write_guard = offset;
+    }
     pub fn sync(&self) -> Result<()> {
         todo!()
     }
@@ -39,7 +42,7 @@ impl DataFile {
     }
 
     /// 给定 `offset` 读取相应的 LogRecord
-    pub fn read_log_record(&self, offset: u64) -> Result<LogRecord> {
+    pub fn read_log_record(&self, offset: u64) -> Result<ReadLogRecord> {
         todo!()
     }
 }
