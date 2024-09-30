@@ -99,7 +99,7 @@ mod tests {
     fn test_iterator_seek() {
         setup();
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath();
+        opts.dir_path = basepath().join("seek");
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
         // 没有数据
@@ -136,7 +136,7 @@ mod tests {
 
         let mut opts = EngineOptions::default();
         let prefix = "a";
-        opts.dir_path = basepath();
+        opts.dir_path = basepath().join("prefix");
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
         let mut iter_opts = IteratorOptions::default();
         iter_opts.prefix = prefix.as_bytes().to_vec();
@@ -180,7 +180,7 @@ mod tests {
         setup();
 
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath();
+        opts.dir_path = basepath().join("listkeys");
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
         // 填充数据
@@ -205,7 +205,7 @@ mod tests {
     fn test_iterator_fold() {
         setup();
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath();
+        opts.dir_path = basepath().join("fold");
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
         // 填充数据

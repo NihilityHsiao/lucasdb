@@ -3,9 +3,6 @@ name = "lucasdb"
 version = "0.1.0"
 edition = "2021"
 
-[[example]]
-name = "basic_operation"
-path = 'examples/basic_operations.rs'
 
 [dependencies]
 thiserror = "1.0.64"
@@ -19,3 +16,12 @@ bon = "2.3.0"
 
 [dev-dependencies]
 anyhow = "1.0.89"
+
+
+[[example]]
+name = "basic_operation"
+path = 'examples/basic_operations.rs'
+
+[[example]]
+name = "write_batch"
+path = 'examples/write_batch.rs'

@@ -5,15 +5,18 @@ use prost::{encode_length_delimiter, length_delimiter_len};
 /// 数据类型
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum LogRecordType {
-    NORMAL = 1,
+    Normal = 1,
     /// 表示这个数据被删除了,merge的时候要清理掉
-    DELETED = 2,
+    Deleted = 2,
+    /// 标识事务完成
+    TxnFinished = 3,
 }
 impl LogRecordType {
     pub fn from_u8(value: u8) -> Self {
         match value {
-            1 => LogRecordType::NORMAL,
-            2 => LogRecordType::DELETED,
+            1 => LogRecordType::Normal,
+            2 => LogRecordType::Deleted,
+            3 => LogRecordType::TxnFinished,
             _ => panic!("Invalid log record type"),
         }
     }
@@ -145,7 +148,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key,
                 value: value,
-                rec_type: LogRecordType::NORMAL,
+                rec_type: LogRecordType::Normal,
             };
 
             // 编码
@@ -170,7 +173,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key,
                 value: value,
-                rec_type: LogRecordType::NORMAL,
+                rec_type: LogRecordType::Normal,
             };
 
             // 编码
@@ -194,7 +197,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key,
                 value: Default::default(),
-                rec_type: LogRecordType::DELETED,
+                rec_type: LogRecordType::Deleted,
             };
 
             // 编码

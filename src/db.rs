@@ -1,6 +1,16 @@
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use crate::{
+    // batch::{log_record_key_with_seq, parse_log_record_key},
+    batch::{log_record_key_with_seq, parse_log_record_key, TransactionRecord},
     data::{
         data_file::{self, DataFile},
         log_record::{LogRecord, LogRecordPos, LogRecordType},
@@ -12,7 +22,7 @@ use crate::{
 };
 use bytes::Bytes;
 use log::error;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 const INITIAL_FILE_ID: u32 = 0;
 pub struct Engine {
@@ -21,6 +31,9 @@ pub struct Engine {
     older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
     pub(crate) index: Box<dyn index::Indexer>, // 数据内存索引(并发安全)
     file_ids: Vec<u32>,                 // 数据库启动时,获取到的id信息,只用于加载索引时使用
+
+    pub(crate) batch_commit_lock: Mutex<()>, // 事务提交的锁,保证事务串行化
+    pub(crate) seq_no: Arc<AtomicUsize>,     // 事务序列号
 }
 
 impl Engine {
@@ -63,10 +76,16 @@ impl Engine {
             older_files: Arc::new(RwLock::new(older_files)),
             index: Box::new(index::new_indexer(options.index_type)),
             file_ids: file_ids,
+            batch_commit_lock: Mutex::new(()),
+            seq_no: Arc::new(AtomicUsize::new(1)),
         };
 
         // 加载内存索引
-        engine.load_index_from_data_files()?;
+        let current_seq_no = engine.load_index_from_data_files()?;
+        // 更新当前事务序列号
+        if current_seq_no > 0 {
+            engine.seq_no.store(current_seq_no, Ordering::SeqCst);
+        }
 
         Ok(engine)
     }
@@ -77,9 +96,9 @@ impl Engine {
             return Err(Errors::KeyIsEmpty);
         }
         let mut log_record = LogRecord {
-            key: key.to_vec(),
+            key: log_record_key_with_seq(key.to_vec(), NON_TRANSACTION_SEQ_NO)?,
             value: value.to_vec(),
-            rec_type: LogRecordType::NORMAL,
+            rec_type: LogRecordType::Normal,
         };
 
         let log_record_pos = self.append_log_record(&mut log_record)?;
@@ -96,7 +115,7 @@ impl Engine {
 
     /// 追加写入数据
     /// 返回内存索引信息
-    fn append_log_record(&self, log_record: &mut LogRecord) -> Result<LogRecordPos> {
+    pub(crate) fn append_log_record(&self, log_record: &mut LogRecord) -> Result<LogRecordPos> {
         let dir_path = &self.options.dir_path;
 
         // 对写入的record进行编码
@@ -177,8 +196,8 @@ impl Engine {
 
         // 判断这个数据是否有效
         match log_record.rec_type {
-            LogRecordType::NORMAL => return Ok(log_record.value.into()),
-            LogRecordType::DELETED => return Err(Errors::KeyNotFound),
+            LogRecordType::Deleted => return Err(Errors::KeyNotFound),
+            _ => return Ok(log_record.value.into()),
         }
     }
 
@@ -195,9 +214,9 @@ impl Engine {
 
         // 构造log_record,写入数据文件
         let mut record = LogRecord {
-            key: key.to_vec(),
+            key: log_record_key_with_seq(key.to_vec(), NON_TRANSACTION_SEQ_NO)?,
             value: Default::default(),
-            rec_type: LogRecordType::DELETED,
+            rec_type: LogRecordType::Deleted,
         };
 
         // 追加写入
@@ -214,13 +233,17 @@ impl Engine {
 
     /// 启动时用到,从数据文件中加载内存索引
     /// 遍历所有数据文件,将key的位置记录起来
-    fn load_index_from_data_files(&mut self) -> Result<()> {
+    fn load_index_from_data_files(&mut self) -> Result<usize> {
+        let mut current_seq_no = NON_TRANSACTION_SEQ_NO;
         if self.file_ids.is_empty() {
-            return Ok(());
+            return Ok(current_seq_no);
         }
 
         let active_file = self.active_file.read();
         let older_files = self.older_files.read();
+
+        // 暂存事务相关的数据
+        let mut transaction_records = HashMap::new();
 
         for (i, file_id) in self.file_ids.iter().enumerate() {
             let mut offset = 0;
@@ -234,7 +257,7 @@ impl Engine {
                     }
                 };
 
-                let (log_record, size) = match log_record_res {
+                let (mut log_record, size) = match log_record_res {
                     Ok(result) => (result.record, result.size),
                     Err(e) => {
                         // EOF: 读到文件末尾
@@ -251,14 +274,40 @@ impl Engine {
                     offset,
                 };
 
-                let ok = match log_record.rec_type {
-                    LogRecordType::NORMAL => {
-                        self.index.put(log_record.key.to_vec(), log_record_pos)
+                let (real_key, seq_no) = parse_log_record_key(log_record.key.clone())?;
+                if seq_no == NON_TRANSACTION_SEQ_NO {
+                    self.update_index(real_key, log_record.rec_type, log_record_pos);
+                } else {
+                    // 事务数据
+                    if log_record.rec_type == LogRecordType::TxnFinished {
+                        // 更新内存索引,这是个合法的事务数据
+                        let records: &Vec<TransactionRecord> = transaction_records
+                            .get(&seq_no)
+                            .ok_or(Errors::TxnNumberNotFound(seq_no))?;
+
+                        for txn_record in records.iter() {
+                            self.update_index(
+                                txn_record.record.key.clone(),
+                                txn_record.record.rec_type,
+                                txn_record.pos,
+                            );
+                        }
+
+                        transaction_records.remove(&seq_no);
+                    } else {
+                        // 批量提交的数据,暂存
+                        log_record.key = real_key;
+                        transaction_records
+                            .entry(seq_no)
+                            .or_insert(Vec::new())
+                            .push(TransactionRecord {
+                                record: log_record,
+                                pos: log_record_pos,
+                            });
                     }
-                    LogRecordType::DELETED => self.index.delete(log_record.key.to_vec()),
-                };
-                if !ok {
-                    return Err(Errors::IndexUpdateFailed);
+                }
+                if seq_no > current_seq_no {
+                    current_seq_no = seq_no;
                 }
                 offset += size as u64;
             }
@@ -269,7 +318,15 @@ impl Engine {
             }
         }
 
-        Ok(())
+        Ok(current_seq_no)
+    }
+
+    fn update_index(&self, key: Vec<u8>, rec_type: LogRecordType, pos: LogRecordPos) {
+        if rec_type == LogRecordType::Normal {
+            self.index.put(key, pos);
+        } else if rec_type == LogRecordType::Deleted {
+            self.index.delete(key);
+        }
     }
 
     /// 关闭数据库
@@ -359,17 +416,13 @@ fn check_options(opts: &EngineOptions) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn basepath() -> &'static str {
-        "./tmp/db"
+    fn basepath() -> PathBuf {
+        "./tmp/db".into()
     }
 
-    fn get_path(file_name: &str) -> PathBuf {
-        PathBuf::from(format!("{}/{}", basepath(), file_name))
-    }
-
-    fn setup() {
+    fn setup(dir_path: &str) {
         // 创建测试文件夹
-        let basepath = PathBuf::from(basepath());
+        let basepath = PathBuf::from(basepath()).join(dir_path);
         if basepath.exists() {
             return;
         }
@@ -382,25 +435,26 @@ mod tests {
         }
     }
 
-    fn clean() {
-        let _ = std::fs::remove_dir_all(basepath());
+    fn clean(dir_path: &str) {
+        let _ = std::fs::remove_dir_all(basepath().join(dir_path));
     }
     #[test]
     fn teset_db_open() {
-        setup();
+        setup("open");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("open").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
-        let db = db_res.unwrap();
+        let _ = db_res.unwrap();
+        clean("open");
     }
 
     #[test]
     fn test_db_put() {
-        setup();
+        setup("put");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("put").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
@@ -419,14 +473,14 @@ mod tests {
             Errors::KeyIsEmpty => {}
             _ => panic!("Unexpected error"),
         }
-        clean();
+        clean("put");
     }
 
     #[test]
     fn test_db_get() {
-        setup();
+        setup("get");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("get").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
@@ -466,14 +520,14 @@ mod tests {
             let get_value = res.unwrap();
             assert_eq!(get_value, value.clone());
         }
-        clean();
+        clean("get");
     }
 
     #[test]
     fn test_db_delete() {
-        setup();
+        setup("delete");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("delete").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
@@ -496,14 +550,14 @@ mod tests {
             Errors::KeyNotFound => {}
             _ => panic!("Unexpected error"),
         }
-        clean();
+        clean("delete");
     }
 
     #[test]
     fn test_db_close() {
-        setup();
+        setup("close");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("close").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
@@ -517,14 +571,14 @@ mod tests {
 
         assert_eq!(true, db.close().is_ok());
 
-        clean();
+        clean("close");
     }
 
     #[test]
     fn test_db_sync() {
-        setup();
+        setup("sync");
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().into();
+        opts.dir_path = basepath().join("sync").into();
 
         let db_res = Engine::open(opts);
         assert!(db_res.is_ok());
@@ -538,6 +592,6 @@ mod tests {
 
         assert_eq!(true, db.sync().is_ok());
 
-        clean();
+        clean("sync");
     }
 }

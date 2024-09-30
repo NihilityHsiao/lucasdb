@@ -37,4 +37,10 @@ pub enum Errors {
 
     #[error("invalid log record crc")]
     InvalidLogRecordCrc,
+
+    #[error("exceed the max batch num, max:{}, current:{}", max, current)]
+    ExceedMaxBatchNum { max: u32, current: u32 },
+
+    #[error("transaction sequence number not found: {0}")]
+    TxnNumberNotFound(usize),
 }

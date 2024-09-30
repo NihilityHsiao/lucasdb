@@ -21,6 +21,12 @@ pub struct IteratorOptions {
     pub reverse: bool,   // 是否反向便利
 }
 
+#[derive(Debug, Clone, Builder)]
+pub struct WriteBatchOptions {
+    pub max_batch_num: u32, // 一个Batch最多写多少条数据
+    pub sync_writes: bool,  // 提交的时候是否持久化
+}
+
 impl Default for EngineOptions {
     fn default() -> Self {
         Self {
@@ -37,6 +43,14 @@ impl Default for IteratorOptions {
         Self {
             prefix: Default::default(),
             reverse: false,
+        }
+    }
+}
+impl Default for WriteBatchOptions {
+    fn default() -> Self {
+        Self {
+            max_batch_num: 10000,
+            sync_writes: true,
         }
     }
 }

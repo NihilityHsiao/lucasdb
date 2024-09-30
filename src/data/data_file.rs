@@ -87,7 +87,7 @@ impl DataFile {
         self.io_manager
             .read(&mut kv_buf, offset + actual_header_size as u64)?;
 
-        let mut log_record = LogRecord {
+        let log_record = LogRecord {
             key: kv_buf.get(..key_size).unwrap().to_vec(),
             value: kv_buf.get(key_size..kv_buf.len() - 4).unwrap().to_vec(),
             rec_type: LogRecordType::from_u8(rec_type),
@@ -261,7 +261,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key.clone(),
                 value: value.clone(),
-                rec_type: LogRecordType::NORMAL,
+                rec_type: LogRecordType::Normal,
             };
 
             let encode_res = log_record.encode();
@@ -287,7 +287,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key.clone(),
                 value: value.clone(),
-                rec_type: LogRecordType::NORMAL,
+                rec_type: LogRecordType::Normal,
             };
 
             let encode_res = log_record.encode();
@@ -317,7 +317,7 @@ mod tests {
             let log_record = LogRecord {
                 key: key.clone(),
                 value: Default::default(),
-                rec_type: LogRecordType::DELETED,
+                rec_type: LogRecordType::Deleted,
             };
 
             let encode_res = log_record.encode();
@@ -336,7 +336,7 @@ mod tests {
             let read_log_record = read_log_record_res.unwrap();
 
             assert_eq!(read_log_record.record.key, key);
-            assert_eq!(read_log_record.record.rec_type, LogRecordType::DELETED);
+            assert_eq!(read_log_record.record.rec_type, LogRecordType::Deleted);
         }
 
         clean();
