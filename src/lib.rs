@@ -1,8 +1,9 @@
 mod data;
-mod db;
-mod errors;
+pub mod db;
+pub mod errors;
 mod fio;
 mod index;
-mod options;
+pub mod options;
+
 mod prelude;
 mod utils;
