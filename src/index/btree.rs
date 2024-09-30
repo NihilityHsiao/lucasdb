@@ -1,10 +1,12 @@
+use crate::prelude::*;
 use std::{collections::BTreeMap, sync::Arc};
 
+use bytes::Bytes;
 use parking_lot::RwLock;
 
 use crate::data::log_record::LogRecordPos;
 
-use super::Indexer;
+use super::{btree_iterator::BTreeIterator, IndexIterator, Indexer};
 
 /// `BTree` 内存索引,封装了标准库的 `BTreeMap`
 pub struct BTree {
@@ -35,6 +37,33 @@ impl Indexer for BTree {
         let mut write_guard = self.tree.write();
         let remove_res = write_guard.remove(&key);
         remove_res.is_some()
+    }
+
+    fn iterator(&self, options: crate::options::IteratorOptions) -> Box<dyn IndexIterator> {
+        let read_guard = self.tree.read();
+        let mut items = Vec::with_capacity(read_guard.len());
+        for (key, value) in read_guard.iter() {
+            items.push((key.clone(), value.clone()));
+        }
+
+        if options.reverse {
+            items.reverse();
+        }
+        Box::new(BTreeIterator {
+            items,
+            curr_index: 0,
+            options,
+        })
+    }
+
+    fn list_keys(&self) -> Result<Vec<bytes::Bytes>> {
+        let read_guard = self.tree.read();
+        let mut keys = Vec::with_capacity(read_guard.len());
+        for (k, _) in read_guard.iter() {
+            keys.push(Bytes::copy_from_slice(&k));
+        }
+
+        Ok(keys)
     }
 }
 

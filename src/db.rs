@@ -19,7 +19,7 @@ pub struct Engine {
     options: Arc<EngineOptions>,
     active_file: Arc<RwLock<DataFile>>, // 当前活跃文件
     older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
-    index: Box<dyn index::Indexer>,     // 数据内存索引(并发安全)
+    pub(crate) index: Box<dyn index::Indexer>, // 数据内存索引(并发安全)
     file_ids: Vec<u32>,                 // 数据库启动时,获取到的id信息,只用于加载索引时使用
 }
 
@@ -147,8 +147,14 @@ impl Engine {
         if pos.is_none() {
             return Err(Errors::KeyNotFound);
         }
+
+        let pos = pos.unwrap();
+        self.get_value_by_position(&pos)
+    }
+
+    pub(crate) fn get_value_by_position(&self, log_record_pos: &LogRecordPos) -> Result<Bytes> {
         // 数据在磁盘中的位置,在哪个文件,偏移量
-        let log_record_pos = pos.unwrap();
+        let log_record_pos = log_record_pos;
 
         let active_file = self.active_file.read();
         let older_files = self.older_files.read();
@@ -265,6 +271,20 @@ impl Engine {
 
         Ok(())
     }
+
+    /// 关闭数据库
+    pub fn close(&self) -> Result<()> {
+        let active_file = self.active_file.read();
+        active_file.sync()
+
+        // 其他资源
+    }
+
+    /// 持久化活跃文件
+    pub fn sync(&self) -> Result<()> {
+        let active_file = self.active_file.read();
+        active_file.sync()
+    }
 }
 
 /// 从dir_path中加载数据文件
@@ -334,4 +354,190 @@ fn check_options(opts: &EngineOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn basepath() -> &'static str {
+        "./tmp/db"
+    }
+
+    fn get_path(file_name: &str) -> PathBuf {
+        PathBuf::from(format!("{}/{}", basepath(), file_name))
+    }
+
+    fn setup() {
+        // 创建测试文件夹
+        let basepath = PathBuf::from(basepath());
+        if basepath.exists() {
+            return;
+        }
+
+        match std::fs::create_dir_all(basepath) {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("error creating directory: {}", e)
+            }
+        }
+    }
+
+    fn clean() {
+        let _ = std::fs::remove_dir_all(basepath());
+    }
+    #[test]
+    fn teset_db_open() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+    }
+
+    #[test]
+    fn test_db_put() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        let empty_key = Bytes::from("");
+        let res = db.put(empty_key, value.clone());
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            Errors::KeyIsEmpty => {}
+            _ => panic!("Unexpected error"),
+        }
+        clean();
+    }
+
+    #[test]
+    fn test_db_get() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        // 正常数据
+        let get_res = db.get(key.clone());
+        assert!(get_res.is_ok());
+        let get_value = get_res.unwrap();
+        assert_eq!(get_value, value.clone());
+
+        // 不存在的数据
+
+        let non_exist_key = Bytes::from("non-existent");
+        let res = db.get(non_exist_key);
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            Errors::KeyNotFound => {}
+            _ => panic!("Unexpected error"),
+        }
+
+        // value 为空
+        {
+            let key = Bytes::from("LucasDb");
+            let value = Bytes::from("");
+            let res = db.put(key.clone(), value.clone());
+            assert!(res.is_ok());
+
+            let res = db.get(key.clone());
+            assert!(res.is_ok());
+            let get_value = res.unwrap();
+            assert_eq!(get_value, value.clone());
+        }
+        clean();
+    }
+
+    #[test]
+    fn test_db_delete() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        // 删除数据
+        let res = db.delete(key.clone());
+        assert!(res.is_ok());
+
+        // 再get
+        let res = db.get(key.clone());
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            Errors::KeyNotFound => {}
+            _ => panic!("Unexpected error"),
+        }
+        clean();
+    }
+
+    #[test]
+    fn test_db_close() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        assert_eq!(true, db.close().is_ok());
+
+        clean();
+    }
+
+    #[test]
+    fn test_db_sync() {
+        setup();
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().into();
+
+        let db_res = Engine::open(opts);
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        assert_eq!(true, db.sync().is_ok());
+
+        clean();
+    }
 }

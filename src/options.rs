@@ -15,6 +15,12 @@ pub struct EngineOptions {
     pub index_type: IndexType,
 }
 
+#[derive(Debug, Clone, Builder)]
+pub struct IteratorOptions {
+    pub prefix: Vec<u8>, // 前缀,过滤用
+    pub reverse: bool,   // 是否反向便利
+}
+
 impl Default for EngineOptions {
     fn default() -> Self {
         Self {
@@ -22,6 +28,15 @@ impl Default for EngineOptions {
             data_file_size: 256 * 1024 * 1024,
             sync_writes: false,
             index_type: IndexType::BTree,
+        }
+    }
+}
+
+impl Default for IteratorOptions {
+    fn default() -> Self {
+        Self {
+            prefix: Default::default(),
+            reverse: false,
         }
     }
 }
