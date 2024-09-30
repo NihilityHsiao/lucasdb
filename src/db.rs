@@ -36,6 +36,8 @@ impl Engine {
 
         // 加载数据文件
         let mut data_files = load_data_files(&options.dir_path)?;
+        // 列表中的第一个文件是活跃文件
+        data_files.reverse();
         let mut file_ids = vec![];
         for v in data_files.iter() {
             file_ids.push(v.get_file_id());
@@ -50,7 +52,6 @@ impl Engine {
             }
         }
 
-        // 列表中的最后一个文件是活跃文件
         let active_file = match data_files.pop() {
             Some(v) => v,
             None => DataFile::new(options.dir_path.clone(), INITIAL_FILE_ID)?,
@@ -306,15 +307,15 @@ fn load_data_files(dir_path: &PathBuf) -> Result<Vec<DataFile>> {
 
         file_ids.push(file_id);
     }
+    let mut data_files = vec![];
     // 没有数据文件
     if file_ids.is_empty() {
-        todo!()
+        return Ok(data_files);
     }
 
     // 排序,文件id最大的默认是活跃文件
     file_ids.sort();
 
-    let mut data_files = vec![];
     for file_id in file_ids.iter() {
         let data_file = DataFile::new(dir_path.clone(), *file_id)?;
         data_files.push(data_file);
