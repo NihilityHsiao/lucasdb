@@ -175,6 +175,36 @@ impl Engine {
         }
     }
 
+    pub fn delete(&self, key: Bytes) -> Result<()> {
+        if key.is_empty() {
+            return Err(Errors::KeyIsEmpty);
+        }
+
+        // 从内存索引中取数据
+        let pos = self.index.get(key.to_vec());
+        if pos.is_none() {
+            return Ok(());
+        }
+
+        // 构造log_record,写入数据文件
+        let mut record = LogRecord {
+            key: key.to_vec(),
+            value: Default::default(),
+            rec_type: LogRecordType::DELETED,
+        };
+
+        // 追加写入
+        self.append_log_record(&mut record)?;
+
+        // 从内存索引中删除
+        let ok = self.index.delete(key.to_vec());
+        if !ok {
+            return Err(Errors::IndexUpdateFailed);
+        }
+
+        Ok(())
+    }
+
     /// 启动时用到,从数据文件中加载内存索引
     /// 遍历所有数据文件,将key的位置记录起来
     fn load_index_from_data_files(&mut self) -> Result<()> {
@@ -214,13 +244,15 @@ impl Engine {
                     offset,
                 };
 
-                match log_record.rec_type {
+                let ok = match log_record.rec_type {
                     LogRecordType::NORMAL => {
                         self.index.put(log_record.key.to_vec(), log_record_pos)
                     }
                     LogRecordType::DELETED => self.index.delete(log_record.key.to_vec()),
                 };
-
+                if !ok {
+                    return Err(Errors::IndexUpdateFailed);
+                }
                 offset += size;
             }
 
