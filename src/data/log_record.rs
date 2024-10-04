@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use bytes::{BufMut, BytesMut};
-use prost::{encode_length_delimiter, length_delimiter_len};
+use prost::{decode_length_delimiter, encode_length_delimiter, length_delimiter_len};
 
 /// 数据类型
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -27,6 +27,24 @@ impl LogRecordType {
 pub struct LogRecordPos {
     pub(crate) file_id: u32,
     pub(crate) offset: u64,
+}
+impl LogRecordPos {
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut buf = BytesMut::new();
+        encode_length_delimiter(self.file_id as usize, &mut buf)?;
+        encode_length_delimiter(self.offset as usize, &mut buf)?;
+        Ok(buf.to_vec())
+    }
+
+    pub fn decode(pos: Vec<u8>) -> Result<LogRecordPos> {
+        let mut buf = BytesMut::new();
+        buf.put_slice(&pos);
+
+        let file_id = decode_length_delimiter(&mut buf)? as u32;
+        let offset = decode_length_delimiter(&mut buf)? as u64;
+
+        Ok(LogRecordPos { file_id, offset })
+    }
 }
 
 /// 存储真正的数据
@@ -214,5 +232,20 @@ mod tests {
 
             assert_eq!(recalculated_crc, log_record.get_crc());
         }
+    }
+
+    #[test]
+    fn test_log_record_pos_decode() {
+        let pos = LogRecordPos {
+            file_id: 1,
+            offset: 2,
+        };
+
+        let encoded_pos = pos.encode().unwrap();
+
+        let decoded_pos = LogRecordPos::decode(encoded_pos).unwrap();
+
+        assert_eq!(pos.file_id, decoded_pos.file_id);
+        assert_eq!(pos.offset, decoded_pos.offset);
     }
 }

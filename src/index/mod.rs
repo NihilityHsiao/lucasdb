@@ -1,6 +1,8 @@
 use crate::prelude::*;
 pub mod btree;
 pub mod btree_iterator;
+pub mod skiplist;
+pub mod skiplist_iterator;
 
 use bytes::Bytes;
 

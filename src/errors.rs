@@ -43,4 +43,7 @@ pub enum Errors {
 
     #[error("transaction sequence number not found: {0}")]
     TxnNumberNotFound(usize),
+
+    #[error("merge is in progress")]
+    MergeInProgress,
 }

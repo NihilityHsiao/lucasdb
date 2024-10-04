@@ -11,7 +11,10 @@ use prost::{decode_length_delimiter, length_delimiter_len};
 
 use crate::fio;
 
-use super::log_record::{LogRecord, ReadLogRecord};
+use super::{
+    log_record::{LogRecord, LogRecordPos, ReadLogRecord},
+    HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME,
+};
 
 /// 数据文件,实际存储多个key-value的文件
 /// 一个 DataFile 就对应一个文件
@@ -32,6 +35,32 @@ impl DataFile {
         let io_manager = new_io_manager(file_name)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(file_id)),
+            write_off: Arc::new(RwLock::new(0)),
+            io_manager: Box::new(io_manager),
+        })
+    }
+
+    /// hint索引文件
+    pub fn new_hint_file(dir_path: PathBuf) -> Result<DataFile> {
+        // 根据 dir_path 和 file_id 构建出完整的文件名称
+        let file_name = dir_path.join(HINT_FILE_NAME);
+
+        let io_manager = new_io_manager(file_name)?;
+        Ok(DataFile {
+            file_id: Arc::new(RwLock::new(0)),
+            write_off: Arc::new(RwLock::new(0)),
+            io_manager: Box::new(io_manager),
+        })
+    }
+
+    /// 标识merge完成的文件
+    pub fn new_merge_fin_file(dir_path: PathBuf) -> Result<DataFile> {
+        // 根据 dir_path 和 file_id 构建出完整的文件名称
+        let file_name = dir_path.join(MERGE_FINISHED_FILE_NAME);
+
+        let io_manager = new_io_manager(file_name)?;
+        Ok(DataFile {
+            file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
             io_manager: Box::new(io_manager),
         })
@@ -60,6 +89,17 @@ impl DataFile {
         *write_off += n_bytes as u64;
 
         Ok(n_bytes)
+    }
+
+    pub fn write_hint_record(&self, key: Vec<u8>, pos: LogRecordPos) -> Result<()> {
+        let hint_record = LogRecord {
+            key,
+            value: pos.encode()?,
+            rec_type: LogRecordType::Normal,
+        };
+        let encoded_record = hint_record.encode()?;
+        self.write(&encoded_record)?;
+        Ok(())
     }
 
     /// 给定 `offset` 读取相应的 LogRecord
@@ -107,24 +147,22 @@ impl DataFile {
     }
 }
 
-fn get_data_file_name(path: &PathBuf, file_id: u32) -> PathBuf {
+pub fn get_data_file_name(path: &PathBuf, file_id: u32) -> PathBuf {
     let v = format!("{:09}{}", file_id, DATA_FILE_NAME_SUFFIX);
     path.join(v)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn basepath() -> &'static str {
-        "./tmp/data_file"
+    fn basepath() -> PathBuf {
+        "./tmp/data_file".into()
     }
 
-    fn get_path(file_name: &str) -> PathBuf {
-        PathBuf::from(format!("{}/{}", basepath(), file_name))
-    }
+    fn setup(dir_path: &str) {
+        let _ = std::fs::remove_dir_all(basepath().join(dir_path));
 
-    fn setup() {
         // 创建测试文件夹
-        let basepath = PathBuf::from(basepath());
+        let basepath = PathBuf::from(basepath().join(dir_path));
         if basepath.exists() {
             return;
         }
@@ -137,13 +175,13 @@ mod tests {
         }
     }
 
-    fn clean() {
-        let _ = std::fs::remove_dir_all(basepath());
+    fn clean(dir_path: &str) {
+        let _ = std::fs::remove_dir_all(basepath().join(dir_path));
     }
     #[test]
     fn test_data_file_new() {
-        setup();
-        let dir_path = PathBuf::from(basepath());
+        setup("new");
+        let dir_path = PathBuf::from(basepath().join("new"));
         {
             let file_id = 0;
             let data_file_res = DataFile::new(dir_path.clone(), file_id);
@@ -168,13 +206,13 @@ mod tests {
             assert_eq!(file_id, data_file.get_file_id());
         }
 
-        clean();
+        clean("new");
     }
 
     #[test]
     fn test_data_file_write() {
-        setup();
-        let dir_path = PathBuf::from(basepath());
+        setup("write");
+        let dir_path = PathBuf::from(basepath().join("write"));
         let file_id = 1;
         {
             let data_file_res = DataFile::new(dir_path.clone(), file_id);
@@ -215,13 +253,13 @@ mod tests {
             assert_eq!(buf.len(), write_res.unwrap());
         }
 
-        clean();
+        clean("write");
     }
 
     #[test]
     fn test_data_file_sync() {
-        setup();
-        let dir_path = PathBuf::from(basepath());
+        setup("sync");
+        let dir_path = PathBuf::from(basepath().join("sync"));
         let file_id = 2;
 
         {
@@ -239,13 +277,13 @@ mod tests {
             let sync_res = data_file.sync();
             assert!(sync_res.is_ok());
         }
-        clean();
+        clean("sync");
     }
 
     #[test]
     fn test_data_file_read_log_record() {
-        setup();
-        let dir_path = PathBuf::from(basepath());
+        setup("read");
+        let dir_path = PathBuf::from(basepath().join("read"));
         let file_id = 4;
         let mut offset = 0;
 
@@ -339,6 +377,6 @@ mod tests {
             assert_eq!(read_log_record.record.rec_type, LogRecordType::Deleted);
         }
 
-        clean();
+        clean("read");
     }
 }

@@ -12,10 +12,12 @@ use crate::{
     // batch::{log_record_key_with_seq, parse_log_record_key},
     batch::{log_record_key_with_seq, parse_log_record_key, TransactionRecord},
     data::{
-        data_file::{self, DataFile},
+        data_file::DataFile,
         log_record::{LogRecord, LogRecordPos, LogRecordType},
+        MERGE_FINISHED_FILE_NAME,
     },
     index,
+    merge::load_merge_files,
     options::EngineOptions,
     prelude::*,
     utils,
@@ -26,14 +28,16 @@ use parking_lot::{Mutex, RwLock};
 
 const INITIAL_FILE_ID: u32 = 0;
 pub struct Engine {
-    options: Arc<EngineOptions>,
-    active_file: Arc<RwLock<DataFile>>, // 当前活跃文件
-    older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
-    pub(crate) index: Box<dyn index::Indexer>, // 数据内存索引(并发安全)
-    file_ids: Vec<u32>,                 // 数据库启动时,获取到的id信息,只用于加载索引时使用
+    pub(crate) options: Arc<EngineOptions>,
+    pub(crate) active_file: Arc<RwLock<DataFile>>, // 当前活跃文件
+    pub(crate) older_files: Arc<RwLock<HashMap<u32, DataFile>>>, // 旧的数据文件
+    pub(crate) index: Box<dyn index::Indexer>,     // 数据内存索引(并发安全)
+    file_ids: Vec<u32>, // 数据库启动时,获取到的id信息,只用于加载索引时使用
 
     pub(crate) batch_commit_lock: Mutex<()>, // 事务提交的锁,保证事务串行化
     pub(crate) seq_no: Arc<AtomicUsize>,     // 事务序列号
+
+    pub(crate) merging_lock: Mutex<()>, // 防止多个线程同时merge
 }
 
 impl Engine {
@@ -46,6 +50,9 @@ impl Engine {
             error!("create database directory error: {}", e);
             return Err(Errors::IO(e));
         }
+
+        // 加载merge数据目录
+        load_merge_files(options.dir_path.clone())?;
 
         // 加载数据文件
         let mut data_files = load_data_files(&options.dir_path)?;
@@ -78,8 +85,11 @@ impl Engine {
             file_ids: file_ids,
             batch_commit_lock: Mutex::new(()),
             seq_no: Arc::new(AtomicUsize::new(1)),
+            merging_lock: Mutex::new(()),
         };
 
+        // 从 hint 文件加载索引
+        engine.load_index_from_hint_file()?;
         // 加载内存索引
         let current_seq_no = engine.load_index_from_data_files()?;
         // 更新当前事务序列号
@@ -239,6 +249,18 @@ impl Engine {
             return Ok(current_seq_no);
         }
 
+        // 拿到最近未参与merge的文件id
+        let mut has_merge = false;
+        let mut non_merge_fid = 0;
+        let merge_fin_file = self.options.dir_path.join(MERGE_FINISHED_FILE_NAME);
+        if merge_fin_file.is_file() {
+            let merge_fin_file = DataFile::new_merge_fin_file(self.options.dir_path.clone())?;
+            let merge_fin_record = merge_fin_file.read_log_record(0)?;
+            let v = String::from_utf8(merge_fin_record.record.value).unwrap_or_default();
+            non_merge_fid = v.parse::<u32>().unwrap_or(0);
+            has_merge = true;
+        }
+
         let active_file = self.active_file.read();
         let older_files = self.older_files.read();
 
@@ -246,6 +268,9 @@ impl Engine {
         let mut transaction_records = HashMap::new();
 
         for (i, file_id) in self.file_ids.iter().enumerate() {
+            if has_merge && *file_id < non_merge_fid {
+                continue;
+            }
             let mut offset = 0;
             loop {
                 let log_record_res = match *file_id == active_file.get_file_id() {

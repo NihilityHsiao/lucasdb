@@ -178,7 +178,7 @@ mod tests {
     }
 
     fn clean(dir_path: &str) {
-        let _ = std::fs::remove_dir(basepath().join(dir_path));
+        let _ = std::fs::remove_dir_all(basepath().join(dir_path));
     }
     #[test]
     fn test_write_batch_put() {
