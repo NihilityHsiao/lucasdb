@@ -52,4 +52,7 @@ pub enum Errors {
     FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error("the database dir is used by another process")]
+    DatabaseIsUsing,
 }

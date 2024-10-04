@@ -5,6 +5,7 @@ use crate::{
         data_file::{get_data_file_name, DataFile},
         MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
     },
+    db::FILE_LOCK_NAME,
     prelude::*,
 };
 use std::{fs, path::PathBuf};
@@ -52,6 +53,10 @@ pub(crate) fn load_merge_files(dir_path: PathBuf) -> Result<()> {
             }
 
             if file_name.ends_with(SEQ_NO_FILE_NAME) {
+                continue;
+            }
+
+            if file_name.ends_with(FILE_LOCK_NAME) {
                 continue;
             }
             merge_file_names.push(entry.file_name());

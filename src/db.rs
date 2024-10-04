@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs,
+    fs::{self, File},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -23,11 +23,13 @@ use crate::{
     utils,
 };
 use bytes::Bytes;
+use fs2::FileExt;
 use log::error;
 use parking_lot::{Mutex, RwLock};
 
 const INITIAL_FILE_ID: u32 = 0;
 const SEQ_NO_KEY: &str = "__seq_number_key__";
+pub(crate) const FILE_LOCK_NAME: &str = "lucasdb.lock";
 pub struct Engine {
     pub(crate) options: Arc<EngineOptions>,
     pub(crate) active_file: Arc<RwLock<DataFile>>, // 当前活跃文件
@@ -41,6 +43,8 @@ pub struct Engine {
     pub(crate) merging_lock: Mutex<()>, // 防止多个线程同时merge
 
     pub(crate) is_initial: bool, //是否第一次初始化目录
+
+    file_lock: File, // 文件锁,保证只能在数据目录上打开文件
 }
 
 impl Engine {
@@ -59,6 +63,17 @@ impl Engine {
         let entries = fs::read_dir(&options.dir_path)?;
         if entries.count() == 0 {
             is_initial = true;
+        }
+
+        // 检查是否已经打开了一个Engine
+        let file_lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(options.dir_path.join(FILE_LOCK_NAME))?;
+        if let Err(_) = file_lock.try_lock_exclusive() {
+            // 没拿到文件锁
+            return Err(Errors::DatabaseIsUsing);
         }
 
         // 加载merge数据目录
@@ -97,6 +112,7 @@ impl Engine {
             seq_no: Arc::new(AtomicUsize::new(1)),
             merging_lock: Mutex::new(()),
             is_initial,
+            file_lock,
         };
 
         // 从 hint 文件加载索引
@@ -367,6 +383,13 @@ impl Engine {
 
     /// 关闭数据库
     pub fn close(&self) -> Result<()> {
+        // 数据目录不在旧返回
+        {
+            if !self.options.dir_path.is_dir() {
+                return Ok(());
+            }
+        }
+
         // 记录当前事务序列号
         {
             let seq_no_file = DataFile::new_seq_no_file(self.options.dir_path.clone())?;
@@ -383,10 +406,15 @@ impl Engine {
         // 活跃文件持久化
         {
             let active_file = self.active_file.read();
-            active_file.sync()
+            active_file.sync()?;
         }
-
+        // 释放文件锁
+        {
+            self.file_lock.unlock()?;
+        }
         // 其他资源
+
+        Ok(())
     }
 
     /// 持久化活跃文件
@@ -672,5 +700,36 @@ mod tests {
         assert_eq!(true, db.sync().is_ok());
 
         clean("sync");
+    }
+
+    #[test]
+    fn test_db_file_lock() {
+        let dir_name = "file_lock";
+        setup(&dir_name);
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().join(dir_name).into();
+
+        let db_res = Engine::open(opts.clone());
+        assert!(db_res.is_ok());
+        let db = db_res.unwrap();
+
+        let key = Bytes::from("Hello");
+        let value = Bytes::from("World");
+
+        let res = db.put(key.clone(), value.clone());
+        assert!(res.is_ok());
+
+        assert_eq!(true, db.sync().is_ok());
+
+        // 再次打开一个数据库实例
+        let db2 = Engine::open(opts.clone());
+        assert!(db2.is_err());
+        let err = db2.err().unwrap();
+        match err {
+            Errors::DatabaseIsUsing => {}
+            _ => panic!("unexpected error: {:?}", err),
+        }
+
+        clean(&dir_name);
     }
 }
