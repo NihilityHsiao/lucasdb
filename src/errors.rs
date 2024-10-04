@@ -46,4 +46,10 @@ pub enum Errors {
 
     #[error("merge is in progress")]
     MergeInProgress,
+    #[error("seq number file not found")]
+    SeqNoFileNotExist,
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    ParseIntError(#[from] std::num::ParseIntError),
 }

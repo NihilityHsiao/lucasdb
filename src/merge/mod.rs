@@ -3,7 +3,7 @@ use log::error;
 use crate::{
     data::{
         data_file::{get_data_file_name, DataFile},
-        MERGE_FINISHED_FILE_NAME,
+        MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
     },
     prelude::*,
 };
@@ -49,6 +49,10 @@ pub(crate) fn load_merge_files(dir_path: PathBuf) -> Result<()> {
             let file_name = file_os_str.to_str().unwrap();
             if file_name.ends_with(MERGE_FINISHED_FILE_NAME) {
                 merge_finished = true;
+            }
+
+            if file_name.ends_with(SEQ_NO_FILE_NAME) {
+                continue;
             }
             merge_file_names.push(entry.file_name());
         }

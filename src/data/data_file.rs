@@ -13,7 +13,7 @@ use crate::fio;
 
 use super::{
     log_record::{LogRecord, LogRecordPos, ReadLogRecord},
-    HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME,
+    HINT_FILE_NAME, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
 };
 
 /// 数据文件,实际存储多个key-value的文件
@@ -35,6 +35,17 @@ impl DataFile {
         let io_manager = new_io_manager(file_name)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(file_id)),
+            write_off: Arc::new(RwLock::new(0)),
+            io_manager: Box::new(io_manager),
+        })
+    }
+    pub fn new_seq_no_file(dir_path: PathBuf) -> Result<DataFile> {
+        // 根据 dir_path 和 file_id 构建出完整的文件名称
+        let file_name = dir_path.join(SEQ_NO_FILE_NAME);
+
+        let io_manager = new_io_manager(file_name)?;
+        Ok(DataFile {
+            file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
             io_manager: Box::new(io_manager),
         })
@@ -64,6 +75,10 @@ impl DataFile {
             write_off: Arc::new(RwLock::new(0)),
             io_manager: Box::new(io_manager),
         })
+    }
+
+    pub fn file_size(&self) -> Result<u64> {
+        self.io_manager.size()
     }
 
     pub fn get_write_off(&self) -> u64 {
