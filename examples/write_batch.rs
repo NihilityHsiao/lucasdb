@@ -10,6 +10,7 @@ fn main() {
         .data_file_size(256 * 1024 * 1024)
         .sync_writes(false)
         .index_type(IndexType::BTree)
+        .bytes_per_sync(0)
         .build();
 
     let wb_opts = WriteBatchOptions::default();

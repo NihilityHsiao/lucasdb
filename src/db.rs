@@ -45,6 +45,8 @@ pub struct Engine {
     pub(crate) is_initial: bool, //是否第一次初始化目录
 
     file_lock: File, // 文件锁,保证只能在数据目录上打开文件
+
+    bytes_write: Arc<AtomicUsize>, // 累计写入了多少字节
 }
 
 impl Engine {
@@ -113,6 +115,7 @@ impl Engine {
             merging_lock: Mutex::new(()),
             is_initial,
             file_lock,
+            bytes_write: Arc::new(AtomicUsize::new(0)),
         };
 
         // 从 hint 文件加载索引
@@ -181,9 +184,24 @@ impl Engine {
         let write_off = active_file.get_write_off();
         active_file.write(&encoded_record)?;
 
+        // 更新累计写入字节数
+        let previous = self
+            .bytes_write
+            .fetch_add(encoded_record.len(), Ordering::SeqCst);
+
         // 根据配置项来决定是否持久化
-        if self.options.sync_writes {
+        let mut need_sync = self.options.sync_writes;
+        if !need_sync
+            && self.options.bytes_per_sync > 0
+            && previous + encoded_record.len() >= self.options.bytes_per_sync
+        {
+            need_sync = true;
+        }
+
+        if need_sync {
             active_file.sync()?;
+            // 清空累计值
+            self.bytes_write.store(0, Ordering::SeqCst);
         }
 
         // 构造内存索引

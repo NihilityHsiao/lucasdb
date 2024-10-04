@@ -13,6 +13,9 @@ pub struct EngineOptions {
     pub sync_writes: bool,
     /// 索引类型
     pub index_type: IndexType,
+
+    /// 累计写到多少字节后进行持久化
+    pub bytes_per_sync: usize,
 }
 
 #[derive(Debug, Clone, Builder)]
@@ -34,6 +37,7 @@ impl Default for EngineOptions {
             data_file_size: 256 * 1024 * 1024,
             sync_writes: false,
             index_type: IndexType::BTree,
+            bytes_per_sync: 0,
         }
     }
 }
