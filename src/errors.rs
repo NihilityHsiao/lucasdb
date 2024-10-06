@@ -60,4 +60,11 @@ pub enum Errors {
 
     #[error("do not reach the merge ratio, now:{0}, ratio:{1}", now, ratio)]
     MergeRatioUnreached { now: f32, ratio: f32 },
+
+    #[error(
+        "disk space is not enough for merge, actual:{}, expected:{}",
+        actual,
+        expected
+    )]
+    MergeSpaceNotEnough { actual: u64, expected: u64 },
 }

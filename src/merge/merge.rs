@@ -35,6 +35,16 @@ impl Engine {
             });
         }
 
+        // 判断磁盘容量剩余空间是否足够容纳merge之后的数据
+        let available_size = utils::file::available_disk_size();
+        let need_size = total_size - reclaim_size as u64;
+        if need_size >= available_size {
+            return Err(Errors::MergeSpaceNotEnough {
+                actual: available_size,
+                expected: need_size,
+            });
+        }
+
         // 获取merge的临时目录
         let merge_path = get_merge_path(self.options.dir_path.clone());
 
