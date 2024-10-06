@@ -143,6 +143,17 @@ impl Engine {
 
         Ok(engine)
     }
+
+    /// 备份数据目录
+    pub fn backup(&self, dir_path: PathBuf) -> Result<()> {
+        let exclude = [FILE_LOCK_NAME];
+        if let Err(e) = utils::file::copy_dir(self.options.dir_path.clone(), dir_path, &exclude) {
+            error!("failed to copy directory: {}", e);
+            return Err(Errors::FailedToBackupDatabase);
+        }
+
+        Ok(())
+    }
     fn reset_io_type(&mut self) -> Result<()> {
         {
             // 重置活跃文件
@@ -617,6 +628,7 @@ mod tests {
     }
 
     fn setup(dir_path: &str) {
+        clean(dir_path);
         // 创建测试文件夹
         let basepath = PathBuf::from(basepath()).join(dir_path);
         if basepath.exists() {
@@ -875,5 +887,66 @@ mod tests {
         }
 
         clean(&dir_name);
+    }
+
+    #[test]
+    fn test_db_backup() {
+        let dir_name = "backup-test";
+        let backup_dir_name = "lucasdb_backup";
+        setup(&dir_name);
+
+        // 初始化数据库
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().join(dir_name);
+
+        let db = Engine::open(opts.clone()).expect("failed to open engine");
+
+        let get_kv = |x: usize| -> (Bytes, Bytes) {
+            let key = Bytes::copy_from_slice(format!("test_key_{}", x).as_bytes());
+            let value = Bytes::copy_from_slice(format!("test_value_{}", x).as_bytes());
+
+            (key, value)
+        };
+
+        // 写入测试数据
+        {
+            for i in 0..=100000 {
+                let (key, value) = get_kv(i);
+                let ret = db.put(key, value);
+                assert_eq!(true, ret.is_ok());
+            }
+        }
+
+        // 备份
+        let backup_dir = basepath().join(backup_dir_name);
+
+        {
+            println!("backup begin, backup dir {}", backup_dir.display());
+            let backup_res = db.backup(backup_dir.clone());
+            println!("backup end");
+            assert!(backup_res.is_ok());
+        }
+
+        // 关闭数据库
+        {
+            std::mem::drop(db);
+        }
+
+        // 打开备份的数据目录,校验数据
+        {
+            opts.dir_path = backup_dir;
+            let db = Engine::open(opts.clone()).expect("failed to open engine");
+
+            for i in 0..=100000 {
+                let (key, value) = get_kv(i);
+                let ret = db.get(key);
+                assert_eq!(true, ret.is_ok());
+                let get_value = ret.unwrap();
+                assert_eq!(get_value, value);
+            }
+        }
+
+        clean(dir_name);
+        clean(backup_dir_name);
     }
 }

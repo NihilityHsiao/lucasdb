@@ -67,4 +67,7 @@ pub enum Errors {
         expected
     )]
     MergeSpaceNotEnough { actual: u64, expected: u64 },
+
+    #[error("failed to copy database directory")]
+    FailedToBackupDatabase,
 }

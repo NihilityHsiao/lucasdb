@@ -27,13 +27,13 @@ pub fn dir_disk_size(dir_path: &PathBuf) -> u64 {
 /// 将`src`目录的内容拷贝到`dest`
 /// 如果`src`中的路径以`exclue`结尾,就忽略
 /// 如果`dest`不存在,就会创建目录
-/// 注意: 该方法是递归调用
+/// 注意: 该方法是递归调用,要确保 `dest`不是`src`的子目录
 pub fn copy_dir(src: PathBuf, dest: PathBuf, exclude: &[&str]) -> std::io::Result<()> {
     if !dest.exists() {
         fs::create_dir_all(&dest)?;
     }
-
-    for dir_entry in fs::read_dir(src)? {
+    let dir_entries = fs::read_dir(src)?;
+    for dir_entry in dir_entries {
         let entry = dir_entry?;
         let src_path = entry.path();
         if exclude.iter().any(|&x| src_path.ends_with(x)) {
