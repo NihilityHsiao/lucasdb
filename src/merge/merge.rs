@@ -1,12 +1,10 @@
 use std::sync::atomic::Ordering;
 
-use prost::decode_length_delimiter;
-
 use crate::{
     batch::{log_record_key_with_seq, parse_log_record_key},
     data::{
         data_file::DataFile,
-        log_record::{self, LogRecord, LogRecordPos, LogRecordType},
+        log_record::{LogRecord, LogRecordPos, LogRecordType},
         HINT_FILE_NAME,
     },
     db::Engine,
@@ -189,5 +187,345 @@ impl Engine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        path::PathBuf,
+        sync::{atomic::AtomicUsize, Arc},
+        thread,
+    };
+
+    use bytes::Bytes;
+
+    use super::*;
+    fn basepath() -> PathBuf {
+        "./tmp/merge".into()
+    }
+
+    fn setup(name: &str) -> (Engine, EngineOptions) {
+        clean(name);
+
+        let path = basepath().join(name);
+
+        let mut opts = EngineOptions::default();
+        opts.dir_path = path;
+        opts.data_file_size = 32 * 1024 * 1024;
+        opts.data_file_merge_ratio = 0f32;
+
+        let path = basepath().join(name);
+        if !path.exists() {
+            match std::fs::create_dir_all(path.clone()) {
+                Ok(_) => {}
+                Err(e) => {
+                    panic!("{}", format!("setup error: {:?}", e));
+                }
+            }
+        }
+
+        let db = match Engine::open(opts.clone()) {
+            Ok(engine) => engine,
+            Err(e) => {
+                panic!("{}", format!("open db error: {:?}", e));
+            }
+        };
+
+        (db, opts)
+    }
+
+    fn clean(name: &str) {
+        let dir_path = basepath().join(name);
+        let _ = std::fs::remove_dir_all(dir_path.clone());
+        let merge_path = get_merge_path(dir_path.clone());
+        let _ = std::fs::remove_dir_all(merge_path);
+    }
+
+    #[test]
+    fn test_merge_with_empty_data() {
+        let name = "empty_data";
+        let (db, _) = setup(&name);
+
+        let res = db.merge();
+        assert!(res.is_ok());
+
+        clean(&name);
+    }
+
+    fn get_test_kv(i: usize) -> (Bytes, Bytes) {
+        let key = Bytes::copy_from_slice(format!("test_lucas_db_key_{:09}", i).as_bytes());
+        let value = Bytes::copy_from_slice(format!("test_lucas_db_value_{:09}", i).as_bytes());
+
+        (key, value)
+    }
+
+    #[test]
+    fn test_merge_with_valid_data() {
+        let name = "valid_data";
+        let (db, opts) = setup(name);
+
+        // 写入数据
+        let begin = 0;
+        let end = 50000;
+        {
+            for i in begin..end {
+                let (key, value) = get_test_kv(i);
+                let put_res = db.put(key, value);
+                assert!(put_res.is_ok());
+            }
+        }
+
+        // 第一次 merge
+        {
+            let merge_res = db.merge();
+            assert!(merge_res.is_ok());
+        }
+
+        // 关闭db
+        {
+            std::mem::drop(db);
+        }
+        // 重新打开db
+        let db = Engine::open(opts.clone()).unwrap();
+        // 重新校验
+        {
+            let keys = db.list_keys().unwrap();
+            assert_eq!(keys.len(), end - begin);
+        }
+
+        // 校验merge之后的key
+        {
+            for i in begin..end {
+                let (key, value) = get_test_kv(i);
+                let get_res = db.get(key);
+                assert!(get_res.is_ok());
+                let get_value = get_res.unwrap();
+
+                assert_eq!(get_value, value);
+            }
+        }
+
+        clean(name);
+    }
+
+    #[test]
+    fn test_merge_with_deleted_data() {
+        let name = "deleted_data";
+        let (mut db, opts) = setup(name);
+
+        // 写入数据
+        let begin = 0;
+        let mid = 10000;
+        let end = 50000;
+        let new_value = Bytes::from("new_value");
+        {
+            for i in begin..end {
+                let (key, value) = get_test_kv(i);
+                let put_res = db.put(key, value);
+                assert!(put_res.is_ok());
+            }
+        }
+
+        // 写入部分数据
+        {
+            for i in begin..mid {
+                let (key, _) = get_test_kv(i);
+                let put_res = db.put(key, new_value.clone());
+                assert!(put_res.is_ok());
+            }
+        }
+
+        // 删除数据
+        {
+            for i in mid..end {
+                let (key, _) = get_test_kv(i);
+                let delete_res = db.delete(key);
+                assert!(delete_res.is_ok());
+            }
+        }
+
+        // merge
+        {
+            let merge_res = db.merge();
+            assert!(merge_res.is_ok());
+        }
+
+        // 重启数据库
+        {
+            std::mem::drop(db);
+            db = Engine::open(opts.clone()).expect("failed to reopen database");
+        }
+
+        // 校验
+        {
+            let keys = db.list_keys().expect("listkey error");
+            assert_eq!(keys.len(), mid - begin);
+
+            for i in begin..mid {
+                let (k, _) = get_test_kv(i);
+                let get_res = db.get(k);
+                assert!(get_res.is_ok());
+                assert_eq!(new_value.clone(), get_res.unwrap());
+            }
+        }
+
+        clean(name);
+    }
+
+    // 全都是无效数据时进行merge
+    #[test]
+    fn test_merge_with_invalid_data() {
+        let name = "invalid_data";
+        let (mut db, opts) = setup(name);
+
+        // 写入后删除数据
+        let begin = 0;
+        let end = 50000;
+        {
+            for i in begin..end {
+                let (key, value) = get_test_kv(i);
+                let put_res = db.put(key.clone(), value.clone());
+                assert!(put_res.is_ok());
+
+                // 删除
+                let delete_res = db.delete(key);
+                assert!(delete_res.is_ok());
+            }
+        }
+
+        // merge
+        {
+            let merge_res = db.merge();
+            assert!(merge_res.is_ok());
+        }
+
+        // 重新打开db
+        {
+            std::mem::drop(db);
+            db = Engine::open(opts.clone()).expect("fail to open database");
+        }
+
+        // 校验
+        {
+            let keys = db.list_keys().expect("failed to list keys");
+            assert_eq!(0, keys.len());
+
+            for i in begin..end {
+                let (key, _) = get_test_kv(i);
+                let get_res = db.get(key.clone());
+                match get_res {
+                    Ok(v) => panic!("{}", format!("should not get this value: {:?}", v)),
+                    Err(e) => match e {
+                        Errors::KeyNotFound => {}
+                        _ => {
+                            panic!("unexpected error: {:?}", e)
+                        }
+                    },
+                }
+            }
+        }
+
+        clean(name);
+    }
+
+    // merge的过程中写入/删除数据
+    #[test]
+    fn test_merge_when_modifying_new_data() {
+        let name = "mergeing";
+        let (mut db, opts) = setup(name);
+        let begin = 0;
+        let mid = 10000;
+        let end = 50000;
+
+        let new_value = Bytes::from("new-value-in-merge");
+
+        let mut key_count = Arc::new(AtomicUsize::new(0));
+
+        // 准备测试数据
+        {
+            // 新增数据
+            {
+                for i in begin..end {
+                    let (key, value) = get_test_kv(i);
+                    let put_res = db.put(key.clone(), value.clone());
+                    assert!(put_res.is_ok());
+                    key_count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            // 修改数据
+            {
+                for i in begin..mid {
+                    let (key, _) = get_test_kv(i);
+                    let put_res = db.put(key.clone(), new_value.clone());
+                    assert!(put_res.is_ok());
+                }
+            }
+
+            // 删除数据
+            {
+                for i in mid..end {
+                    let (key, _) = get_test_kv(i);
+                    let delete_res = db.delete(key.clone());
+                    assert!(delete_res.is_ok());
+                    key_count.fetch_sub(1, Ordering::SeqCst);
+                }
+            }
+        }
+
+        // 并发测试
+        {
+            let db_arc = Arc::new(db);
+            let mut handles = vec![];
+
+            // 线程1: 新增数据
+            {
+                let db_arc_1 = db_arc.clone();
+                let key_count_clone = key_count.clone();
+
+                let handle_1 = thread::spawn(move || {
+                    let mut cnt = 0;
+                    for i in 60000..100000 {
+                        let (key, value) = get_test_kv(i);
+                        let put_res = db_arc_1.put(key.clone(), value.clone());
+                        assert!(put_res.is_ok());
+                        cnt += 1;
+                    }
+                    key_count_clone.fetch_add(cnt, Ordering::SeqCst);
+                });
+                handles.push(handle_1);
+            }
+
+            // 线程2: merge
+            {
+                let db_arc_2 = db_arc.clone();
+                let handle_2 = thread::spawn(move || {
+                    let merge_res = db_arc_2.merge();
+                    assert!(merge_res.is_ok());
+                });
+                handles.push(handle_2);
+            }
+
+            // 等待所有线程完成任务
+            {
+                for handle in handles {
+                    handle.join().unwrap();
+                }
+            }
+
+            // 关闭数据库
+            std::mem::drop(db_arc);
+        }
+
+        // 校验数据
+        {
+            db = Engine::open(opts.clone()).expect("failed to open database");
+            let keys = db.list_keys().expect("failed to list keys");
+            let cnt = key_count.load(Ordering::SeqCst);
+            assert_eq!(keys.len(), cnt);
+        }
+
+        clean(name);
     }
 }
