@@ -55,4 +55,9 @@ pub enum Errors {
 
     #[error("the database dir is used by another process")]
     DatabaseIsUsing,
+    #[error("invalid merge ratio")]
+    InvalidMergeRatio,
+
+    #[error("do not reach the merge ratio, now:{0}, ratio:{1}", now, ratio)]
+    MergeRatioUnreached { now: f32, ratio: f32 },
 }

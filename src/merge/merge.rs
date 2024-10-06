@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use prost::decode_length_delimiter;
 
 use crate::{
@@ -12,6 +14,7 @@ use crate::{
     merge::{get_merge_path, MERGE_FIN_KEY},
     options::EngineOptions,
     prelude::*,
+    utils,
 };
 
 impl Engine {
@@ -19,6 +22,17 @@ impl Engine {
         let lock = self.merging_lock.try_lock();
         if lock.is_none() {
             return Err(Errors::MergeInProgress);
+        }
+
+        // 判断是否达到阈值,达到了才需要merge
+        let reclaim_size = self.reclaim_size.load(Ordering::SeqCst);
+        let total_size = utils::file::dir_disk_size(&self.options.dir_path);
+        let cur_ratio = reclaim_size as f32 / total_size as f32;
+        if cur_ratio < self.options.data_file_merge_ratio {
+            return Err(Errors::MergeRatioUnreached {
+                now: cur_ratio,
+                ratio: self.options.data_file_merge_ratio,
+            });
         }
 
         // 获取merge的临时目录

@@ -597,6 +597,10 @@ fn check_options(opts: &EngineOptions) -> Result<()> {
         return Err(Errors::DataFileSizeTooSmall);
     }
 
+    if opts.data_file_merge_ratio < 0 as f32 || opts.data_file_merge_ratio > 1 as f32 {
+        return Err(Errors::InvalidMergeRatio);
+    }
+
     Ok(())
 }
 
