@@ -512,7 +512,7 @@ impl Engine {
             key_num: keys.len(),
             data_file_num: older_files.len(),
             reclaim_size: self.reclaim_size.load(Ordering::SeqCst),
-            disk_size: 0,
+            disk_size: utils::file::dir_disk_size(&self.options.dir_path) as usize,
         })
     }
 }

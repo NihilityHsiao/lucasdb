@@ -1,6 +1,6 @@
 /// 记录数据库的统计信息
 #[derive(Debug)]
-pub(crate) struct Stat {
+pub struct Stat {
     /// `key`的总数量
     pub(crate) key_num: usize,
     /// 数据文件的数量
