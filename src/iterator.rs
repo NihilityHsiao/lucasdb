@@ -77,9 +77,10 @@ mod tests {
         PathBuf::from("./tmp/iterator")
     }
 
-    fn setup() {
+    fn setup(dir_name: &str) {
         // 创建测试文件夹
-        let basepath = PathBuf::from(basepath());
+        clean(dir_name);
+        let basepath = PathBuf::from(basepath().join(dir_name));
         if basepath.exists() {
             return;
         }
@@ -92,14 +93,15 @@ mod tests {
         }
     }
 
-    fn clean() {
-        let _ = std::fs::remove_dir_all(basepath());
+    fn clean(dir_name: &str) {
+        let _ = std::fs::remove_dir_all(basepath().join(dir_name));
     }
     #[test]
     fn test_iterator_seek() {
-        setup();
+        let dir_name = "seek";
+        setup(&dir_name);
         let mut opts = EngineOptions::default();
-        opts.dir_path = basepath().join("seek");
+        opts.dir_path = basepath().join(dir_name);
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
 
         // 没有数据
@@ -127,12 +129,14 @@ mod tests {
             assert_eq!(next_kv.0, key.clone());
             assert_eq!(next_kv.1, value.clone());
         }
-        clean();
+        clean(&dir_name);
     }
 
     #[test]
     fn test_iterator_seek_with_prefix() {
-        setup();
+        let dir_name = "seek_with_prefix";
+
+        setup(&dir_name);
 
         let mut opts = EngineOptions::default();
         let prefix = "a";
@@ -172,12 +176,14 @@ mod tests {
             }
         }
 
-        clean();
+        clean(&dir_name);
     }
 
     #[test]
     fn test_iterator_list_keys() {
-        setup();
+        let dir_name = "lisk_keys";
+
+        setup(&dir_name);
 
         let mut opts = EngineOptions::default();
         opts.dir_path = basepath().join("listkeys");
@@ -198,12 +204,14 @@ mod tests {
             assert_eq!(3, keys.len());
         }
 
-        clean();
+        clean(&dir_name);
     }
 
     #[test]
     fn test_iterator_fold() {
-        setup();
+        let dir_name = "fold";
+
+        setup(&dir_name);
         let mut opts = EngineOptions::default();
         opts.dir_path = basepath().join("fold");
         let engine = Engine::open(opts.clone()).expect("failed to open engine");
@@ -228,6 +236,6 @@ mod tests {
         let keys = engine.list_keys().unwrap();
 
         assert_eq!(*count.borrow(), keys.len());
-        clean();
+        clean(&dir_name);
     }
 }

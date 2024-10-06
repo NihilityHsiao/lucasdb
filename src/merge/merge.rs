@@ -8,6 +8,7 @@ use crate::{
         HINT_FILE_NAME,
     },
     db::Engine,
+    fio::IOType,
     merge::{get_merge_path, MERGE_FIN_KEY},
     options::EngineOptions,
     prelude::*,
@@ -106,11 +107,19 @@ impl Engine {
         let mut active_file = self.active_file.write();
         active_file.sync()?;
         let active_file_id = active_file.get_file_id();
-        let new_active_file = DataFile::new(self.options.dir_path.clone(), active_file_id + 1)?;
+        let new_active_file = DataFile::new(
+            self.options.dir_path.clone(),
+            active_file_id + 1,
+            IOType::StandardFileIO,
+        )?;
         *active_file = new_active_file;
 
         // 加到旧的数据文件中
-        let old_file = DataFile::new(self.options.dir_path.clone(), active_file_id)?;
+        let old_file = DataFile::new(
+            self.options.dir_path.clone(),
+            active_file_id,
+            IOType::StandardFileIO,
+        )?;
         older_files.insert(active_file_id, old_file);
         merge_file_ids.push(active_file_id);
 
@@ -120,7 +129,11 @@ impl Engine {
         // 打开所有需要merge的文件
         let mut merge_files = vec![];
         for file_id in merge_file_ids.iter() {
-            let data_file = DataFile::new(self.options.dir_path.clone(), *file_id)?;
+            let data_file = DataFile::new(
+                self.options.dir_path.clone(),
+                *file_id,
+                IOType::StandardFileIO,
+            )?;
             merge_files.push(data_file);
         }
 

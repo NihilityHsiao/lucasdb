@@ -1,6 +1,6 @@
 use crate::{
     data::log_record::{max_log_record_header_size, LogRecordType},
-    fio::new_io_manager,
+    fio::{new_io_manager, IOType},
     prelude::*,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -28,26 +28,26 @@ pub struct DataFile {
 }
 
 impl DataFile {
-    pub fn new(dir_path: PathBuf, file_id: u32) -> Result<DataFile> {
+    pub fn new(dir_path: PathBuf, file_id: u32, io_type: IOType) -> Result<DataFile> {
         // 根据 dir_path 和 file_id 构建出完整的文件名称
         let file_name = get_data_file_name(&dir_path, file_id);
 
-        let io_manager = new_io_manager(file_name)?;
+        let io_manager = new_io_manager(file_name, io_type)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(file_id)),
             write_off: Arc::new(RwLock::new(0)),
-            io_manager: Box::new(io_manager),
+            io_manager: io_manager,
         })
     }
     pub fn new_seq_no_file(dir_path: PathBuf) -> Result<DataFile> {
         // 根据 dir_path 和 file_id 构建出完整的文件名称
         let file_name = dir_path.join(SEQ_NO_FILE_NAME);
 
-        let io_manager = new_io_manager(file_name)?;
+        let io_manager = new_io_manager(file_name, IOType::StandardFileIO)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
-            io_manager: Box::new(io_manager),
+            io_manager: io_manager,
         })
     }
 
@@ -56,11 +56,11 @@ impl DataFile {
         // 根据 dir_path 和 file_id 构建出完整的文件名称
         let file_name = dir_path.join(HINT_FILE_NAME);
 
-        let io_manager = new_io_manager(file_name)?;
+        let io_manager = new_io_manager(file_name, IOType::StandardFileIO)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
-            io_manager: Box::new(io_manager),
+            io_manager: io_manager,
         })
     }
 
@@ -69,11 +69,11 @@ impl DataFile {
         // 根据 dir_path 和 file_id 构建出完整的文件名称
         let file_name = dir_path.join(MERGE_FINISHED_FILE_NAME);
 
-        let io_manager = new_io_manager(file_name)?;
+        let io_manager = new_io_manager(file_name, IOType::StandardFileIO)?;
         Ok(DataFile {
             file_id: Arc::new(RwLock::new(0)),
             write_off: Arc::new(RwLock::new(0)),
-            io_manager: Box::new(io_manager),
+            io_manager: io_manager,
         })
     }
 
@@ -160,6 +160,13 @@ impl DataFile {
             size: actual_header_size + key_size + value_size + CRC_SIZE,
         })
     }
+
+    pub fn set_io_manager(&mut self, dir_path: PathBuf, io_type: IOType) -> Result<()> {
+        self.io_manager =
+            new_io_manager(get_data_file_name(&dir_path, self.get_file_id()), io_type)?;
+
+        Ok(())
+    }
 }
 
 pub fn get_data_file_name(path: &PathBuf, file_id: u32) -> PathBuf {
@@ -199,7 +206,7 @@ mod tests {
         let dir_path = PathBuf::from(basepath().join("new"));
         {
             let file_id = 0;
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -207,7 +214,7 @@ mod tests {
 
         {
             let file_id = 1;
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -215,7 +222,7 @@ mod tests {
 
         {
             let file_id = 6999123;
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -230,7 +237,7 @@ mod tests {
         let dir_path = PathBuf::from(basepath().join("write"));
         let file_id = 1;
         {
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -243,7 +250,7 @@ mod tests {
         }
 
         {
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -256,7 +263,7 @@ mod tests {
         }
 
         {
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -278,7 +285,7 @@ mod tests {
         let file_id = 2;
 
         {
-            let data_file_res = DataFile::new(dir_path.clone(), file_id);
+            let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
             assert!(data_file_res.is_ok());
             let data_file = data_file_res.unwrap();
             assert_eq!(file_id, data_file.get_file_id());
@@ -302,7 +309,7 @@ mod tests {
         let file_id = 4;
         let mut offset = 0;
 
-        let data_file_res = DataFile::new(dir_path.clone(), file_id);
+        let data_file_res = DataFile::new(dir_path.clone(), file_id, IOType::StandardFileIO);
         assert!(data_file_res.is_ok());
         let data_file = data_file_res.unwrap();
         assert_eq!(file_id, data_file.get_file_id());

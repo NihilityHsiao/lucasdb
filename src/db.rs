@@ -16,6 +16,7 @@ use crate::{
         log_record::{LogRecord, LogRecordPos, LogRecordType},
         MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
     },
+    fio::IOType,
     index,
     merge::load_merge_files,
     options::EngineOptions,
@@ -82,7 +83,7 @@ impl Engine {
         load_merge_files(options.dir_path.clone())?;
 
         // 加载数据文件
-        let mut data_files = load_data_files(&options.dir_path)?;
+        let mut data_files = load_data_files(&options.dir_path, options.use_mmap_when_startup)?;
         // 列表中的第一个文件是活跃文件
         data_files.reverse();
         let mut file_ids = vec![];
@@ -101,7 +102,11 @@ impl Engine {
 
         let active_file = match data_files.pop() {
             Some(v) => v,
-            None => DataFile::new(options.dir_path.clone(), INITIAL_FILE_ID)?,
+            None => DataFile::new(
+                options.dir_path.clone(),
+                INITIAL_FILE_ID,
+                IOType::StandardFileIO,
+            )?,
         };
 
         let mut engine = Self {
@@ -127,7 +132,29 @@ impl Engine {
             engine.seq_no.store(current_seq_no, Ordering::SeqCst);
         }
 
+        // 重置IO类型,启动后不使用MMap
+        if engine.options.use_mmap_when_startup {
+            engine.reset_io_type()?;
+        }
+
         Ok(engine)
+    }
+    fn reset_io_type(&mut self) -> Result<()> {
+        {
+            // 重置活跃文件
+            let mut active_file = self.active_file.write();
+            active_file.set_io_manager(self.options.dir_path.clone(), IOType::StandardFileIO)?;
+        }
+
+        {
+            // 重置旧的数据文件
+            let mut older_files = self.older_files.write();
+            for (_, file) in older_files.iter_mut() {
+                file.set_io_manager(self.options.dir_path.clone(), IOType::StandardFileIO)?;
+            }
+        }
+
+        Ok(())
     }
 
     /// 存储`key`/`value`, `key`不能为空
@@ -169,14 +196,22 @@ impl Engine {
             active_file.sync()?;
             // 当前活跃文件成为旧的活跃文件
             let current_active_file_id = active_file.get_file_id();
-            let old_file = DataFile::new(dir_path.to_owned(), current_active_file_id)?;
+            let old_file = DataFile::new(
+                dir_path.to_owned(),
+                current_active_file_id,
+                IOType::StandardFileIO,
+            )?;
 
             let mut older_files = self.older_files.write();
 
             older_files.insert(current_active_file_id, old_file);
 
             // 打开新的数据文件
-            let new_file = DataFile::new(dir_path.clone(), current_active_file_id + 1)?;
+            let new_file = DataFile::new(
+                dir_path.clone(),
+                current_active_file_id + 1,
+                IOType::StandardFileIO,
+            )?;
             *active_file = new_file;
         }
 
@@ -470,7 +505,7 @@ impl Drop for Engine {
 }
 
 /// 从dir_path中加载数据文件
-fn load_data_files(dir_path: &PathBuf) -> Result<Vec<DataFile>> {
+fn load_data_files(dir_path: &PathBuf, use_mmap: bool) -> Result<Vec<DataFile>> {
     let dir = fs::read_dir(dir_path);
     if dir.is_err() {
         return Err(Errors::DataFileLoadError(dir.unwrap_err()));
@@ -518,8 +553,13 @@ fn load_data_files(dir_path: &PathBuf) -> Result<Vec<DataFile>> {
     // 排序,文件id最大的默认是活跃文件
     file_ids.sort();
 
+    let mut io_type = IOType::StandardFileIO;
+    if use_mmap {
+        io_type = IOType::MemoryMap;
+    }
+
     for file_id in file_ids.iter() {
-        let data_file = DataFile::new(dir_path.clone(), *file_id)?;
+        let data_file = DataFile::new(dir_path.clone(), *file_id, io_type)?;
         data_files.push(data_file);
     }
     return Ok(data_files);

@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
 use file_io::FileIO;
+use mmap::MMapIO;
 
 use crate::prelude::*;
 
 pub mod file_io;
-
+pub mod mmap;
 /// 抽象IO接口,接入不同IO类型,比如 标准文件io、mmap等
 pub trait IOManager: Sync + Send {
     /// 从文件的指定位置读取数据
@@ -19,6 +20,15 @@ pub trait IOManager: Sync + Send {
     fn size(&self) -> Result<u64>;
 }
 
-pub fn new_io_manager(file_name: PathBuf) -> Result<impl IOManager> {
-    FileIO::new(file_name)
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum IOType {
+    StandardFileIO, // 标准文件IO
+    MemoryMap,      // 内存映射,用于加快启动速度
+}
+
+pub fn new_io_manager(file_name: PathBuf, io_type: IOType) -> Result<Box<dyn IOManager>> {
+    match io_type {
+        IOType::StandardFileIO => Ok(Box::new(FileIO::new(file_name)?)),
+        IOType::MemoryMap => Ok(Box::new(MMapIO::new(file_name)?)),
+    }
 }

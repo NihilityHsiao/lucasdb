@@ -16,6 +16,9 @@ pub struct EngineOptions {
 
     /// 累计写到多少字节后进行持久化
     pub bytes_per_sync: usize,
+
+    /// 是否使用Mmap加快启动数据库
+    pub use_mmap_when_startup: bool,
 }
 
 #[derive(Debug, Clone, Builder)]
@@ -38,6 +41,7 @@ impl Default for EngineOptions {
             sync_writes: false,
             index_type: IndexType::BTree,
             bytes_per_sync: 0,
+            use_mmap_when_startup: true,
         }
     }
 }

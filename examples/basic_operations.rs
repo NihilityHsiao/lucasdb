@@ -13,6 +13,7 @@ fn main() {
         .sync_writes(false)
         .index_type(IndexType::BTree)
         .bytes_per_sync(0)
+        .use_mmap_when_startup(true)
         .build();
 
     let engine = db::Engine::open(opts).expect("failed to open bitcask engine");
