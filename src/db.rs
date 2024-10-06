@@ -58,7 +58,7 @@ impl Engine {
         // 判断数据目录是否存在,如果不存在,就创建
         let mut is_initial = false;
 
-        if let Err(e) = utils::create_dir_if_not_exist(&options.dir_path) {
+        if let Err(e) = utils::file::create_dir_if_not_exist(&options.dir_path) {
             error!("create database directory error: {}", e);
             return Err(Errors::IO(e));
         }
