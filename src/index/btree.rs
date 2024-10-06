@@ -77,6 +77,7 @@ mod tests {
             LogRecordPos {
                 file_id: 1,
                 offset: 32,
+                size: 100,
             },
         );
 
@@ -87,6 +88,7 @@ mod tests {
             LogRecordPos {
                 file_id: 1,
                 offset: 32,
+                size: 100,
             },
         );
 
@@ -97,6 +99,7 @@ mod tests {
             LogRecordPos {
                 file_id: 1,
                 offset: 32,
+                size: 100,
             },
         );
         assert_eq!(true, ret1.is_some());
@@ -113,6 +116,7 @@ mod tests {
             LogRecordPos {
                 file_id: 1,
                 offset: 32,
+                size: 100,
             },
         );
         assert_eq!(ret1.is_none(), true);
@@ -142,6 +146,7 @@ mod tests {
             LogRecordPos {
                 file_id: 1,
                 offset: 32,
+                size: 100,
             },
         );
         assert_eq!(ret1.is_none(), true);

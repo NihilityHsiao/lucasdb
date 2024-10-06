@@ -46,8 +46,10 @@ pub struct Engine {
     pub(crate) is_initial: bool, //是否第一次初始化目录
 
     file_lock: File, // 文件锁,保证只能在数据目录上打开文件
-
-    bytes_write: Arc<AtomicUsize>, // 累计写入了多少字节
+    /// 累计写入了多少字节
+    bytes_write: Arc<AtomicUsize>,
+    /// 累计还有多少空间可以merge
+    pub(crate) reclaim_size: Arc<AtomicUsize>,
 }
 
 impl Engine {
@@ -121,6 +123,7 @@ impl Engine {
             is_initial,
             file_lock,
             bytes_write: Arc::new(AtomicUsize::new(0)),
+            reclaim_size: Arc::new(AtomicUsize::new(0)),
         };
 
         // 从 hint 文件加载索引
@@ -171,7 +174,10 @@ impl Engine {
         let log_record_pos = self.append_log_record(&mut log_record)?;
 
         // 更新内存索引
-        let ok = self.index.put(key.to_vec(), log_record_pos);
+        if let Some(old_value) = self.index.put(key.to_vec(), log_record_pos) {
+            self.reclaim_size
+                .fetch_add(old_value.size, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -239,6 +245,7 @@ impl Engine {
         Ok(LogRecordPos {
             file_id: active_file.get_file_id(),
             offset: write_off,
+            size: encoded_record.len(),
         })
     }
 
@@ -306,13 +313,13 @@ impl Engine {
         };
 
         // 追加写入
-        self.append_log_record(&mut record)?;
+        let pos = self.append_log_record(&mut record)?;
+        self.reclaim_size.fetch_add(pos.size, Ordering::SeqCst);
 
         // 从内存索引中删除
-        let ok = self.index.delete(key.to_vec());
-        // if !ok {
-        //     return Err(Errors::IndexUpdateFailed);
-        // }
+        if let Some(old_pos) = self.index.delete(key.to_vec()) {
+            self.reclaim_size.fetch_add(old_pos.size, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -373,6 +380,7 @@ impl Engine {
                 let log_record_pos = LogRecordPos {
                     file_id: *file_id,
                     offset,
+                    size: size,
                 };
 
                 let (real_key, seq_no) = parse_log_record_key(log_record.key.clone())?;
@@ -424,9 +432,15 @@ impl Engine {
 
     fn update_index(&self, key: Vec<u8>, rec_type: LogRecordType, pos: LogRecordPos) {
         if rec_type == LogRecordType::Normal {
-            self.index.put(key, pos);
+            if let Some(old_pos) = self.index.put(key, pos) {
+                self.reclaim_size.fetch_add(old_pos.size, Ordering::SeqCst);
+            }
         } else if rec_type == LogRecordType::Deleted {
-            self.index.delete(key);
+            let mut size = pos.size;
+            if let Some(old_pos) = self.index.delete(key) {
+                size += old_pos.size;
+            }
+            self.reclaim_size.fetch_add(size, Ordering::SeqCst);
         }
     }
 

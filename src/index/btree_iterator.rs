@@ -70,6 +70,7 @@ mod tests {
             let pos = LogRecordPos {
                 file_id: 0,
                 offset: 10,
+                size: 100,
             };
             bt.put(key.clone(), pos.clone());
 
@@ -98,24 +99,28 @@ mod tests {
             let pos = LogRecordPos {
                 file_id: 0,
                 offset: 10,
+                size: 100,
             };
             bt.put(key.clone(), pos.clone());
             let key = "aa-33-44".as_bytes().to_vec();
             let pos = LogRecordPos {
                 file_id: 0,
                 offset: 10,
+                size: 100,
             };
             bt.put(key.clone(), pos.clone());
             let key = "bb-11-22".as_bytes().to_vec();
             let pos = LogRecordPos {
                 file_id: 0,
                 offset: 10,
+                size: 100,
             };
             bt.put(key.clone(), pos.clone());
             let key: Vec<u8> = "bb-33-44".as_bytes().to_vec();
             let pos = LogRecordPos {
                 file_id: 0,
                 offset: 10,
+                size: 100,
             };
             bt.put(key.clone(), pos.clone());
         }

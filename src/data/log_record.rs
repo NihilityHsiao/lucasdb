@@ -25,14 +25,19 @@ impl LogRecordType {
 /// 数据在磁盘中的索引
 #[derive(Debug, Clone, Copy)]
 pub struct LogRecordPos {
+    /// 文件id,表示`LogRecord`存放到了哪个文件中
     pub(crate) file_id: u32,
+    /// 偏移量,表示`LogRecord`存储到了数据文件的哪个位置(起始点)
     pub(crate) offset: u64,
+    /// `LogReocrd`编码后 在磁盘上占据的空间
+    pub(crate) size: usize,
 }
 impl LogRecordPos {
     pub fn encode(&self) -> Result<Vec<u8>> {
         let mut buf = BytesMut::new();
         encode_length_delimiter(self.file_id as usize, &mut buf)?;
         encode_length_delimiter(self.offset as usize, &mut buf)?;
+        encode_length_delimiter(self.size as usize, &mut buf)?;
         Ok(buf.to_vec())
     }
 
@@ -42,8 +47,13 @@ impl LogRecordPos {
 
         let file_id = decode_length_delimiter(&mut buf)? as u32;
         let offset = decode_length_delimiter(&mut buf)? as u64;
+        let size = decode_length_delimiter(&mut buf)?;
 
-        Ok(LogRecordPos { file_id, offset })
+        Ok(LogRecordPos {
+            file_id,
+            offset,
+            size,
+        })
     }
 }
 
@@ -239,6 +249,7 @@ mod tests {
         let pos = LogRecordPos {
             file_id: 1,
             offset: 2,
+            size: 3,
         };
 
         let encoded_pos = pos.encode().unwrap();
@@ -247,5 +258,6 @@ mod tests {
 
         assert_eq!(pos.file_id, decoded_pos.file_id);
         assert_eq!(pos.offset, decoded_pos.offset);
+        assert_eq!(pos.size, decoded_pos.size);
     }
 }

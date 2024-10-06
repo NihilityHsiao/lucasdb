@@ -126,7 +126,6 @@ impl WriteBatch<'_> {
         }
 
         // 更新内存索引
-
         for (_, item) in pending_write.iter() {
             let record_pos = positions.get(&item.key);
             if record_pos.is_none() {
@@ -136,10 +135,18 @@ impl WriteBatch<'_> {
 
             match item.rec_type {
                 LogRecordType::Deleted => {
-                    self.engine.index.delete(item.key.clone());
+                    if let Some(old_pos) = self.engine.index.delete(item.key.clone()) {
+                        self.engine
+                            .reclaim_size
+                            .fetch_add(old_pos.size, Ordering::SeqCst);
+                    }
                 }
                 _ => {
-                    self.engine.index.put(item.key.clone(), *record_pos);
+                    if let Some(old_pos) = self.engine.index.put(item.key.clone(), *record_pos) {
+                        self.engine
+                            .reclaim_size
+                            .fetch_add(old_pos.size, Ordering::SeqCst);
+                    }
                 }
             }
         }
