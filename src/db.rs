@@ -173,10 +173,6 @@ impl Engine {
         // 更新内存索引
         let ok = self.index.put(key.to_vec(), log_record_pos);
 
-        if !ok {
-            return Err(Errors::IndexUpdateFailed);
-        }
-
         Ok(())
     }
 
@@ -314,9 +310,9 @@ impl Engine {
 
         // 从内存索引中删除
         let ok = self.index.delete(key.to_vec());
-        if !ok {
-            return Err(Errors::IndexUpdateFailed);
-        }
+        // if !ok {
+        //     return Err(Errors::IndexUpdateFailed);
+        // }
 
         Ok(())
     }

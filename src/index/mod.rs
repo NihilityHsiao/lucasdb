@@ -13,9 +13,11 @@ use crate::{
 
 /// 内存索引抽象接口
 pub trait Indexer: Sync + Send {
-    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> bool;
+    /// 写入`key`, 返回旧的`value`
+    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> Option<LogRecordPos>;
     fn get(&self, key: Vec<u8>) -> Option<LogRecordPos>;
-    fn delete(&self, key: Vec<u8>) -> bool;
+    /// 删除`key`,返回被删除的`key`的`value`
+    fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos>;
     /// 返回索引迭代器
     fn iterator(&self, options: IteratorOptions) -> Box<dyn IndexIterator>;
     /// 获取所有 key

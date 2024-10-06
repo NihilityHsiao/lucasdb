@@ -21,9 +21,14 @@ impl SkipList {
 }
 
 impl Indexer for SkipList {
-    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> bool {
+    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> Option<LogRecordPos> {
+        let mut old_value = None;
+
+        if let Some(entry) = self.skl.get(&key) {
+            old_value = Some(*entry.value());
+        }
         self.skl.insert(key, pos);
-        true
+        old_value
     }
 
     fn get(&self, key: Vec<u8>) -> Option<LogRecordPos> {
@@ -33,9 +38,11 @@ impl Indexer for SkipList {
         None
     }
 
-    fn delete(&self, key: Vec<u8>) -> bool {
-        let res = self.skl.remove(&key);
-        res.is_some()
+    fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos> {
+        if let Some(entry) = self.skl.remove(&key) {
+            return Some(*entry.value());
+        }
+        None
     }
 
     fn iterator(&self, options: crate::options::IteratorOptions) -> Box<dyn super::IndexIterator> {
@@ -82,7 +89,7 @@ mod tests {
             },
         );
 
-        assert_eq!(ret1, true);
+        assert_eq!(ret1.is_none(), true);
 
         let ret2 = bt.put(
             "ret2".as_bytes().to_vec(),
@@ -92,7 +99,19 @@ mod tests {
             },
         );
 
-        assert_eq!(ret2, true);
+        assert_eq!(ret2.is_none(), true);
+
+        let ret1 = bt.put(
+            "ret1".as_bytes().to_vec(),
+            LogRecordPos {
+                file_id: 3,
+                offset: 4,
+            },
+        );
+        assert_eq!(ret1.is_some(), true);
+        let old_pos = ret1.unwrap();
+        assert_eq!(old_pos.file_id, 1);
+        assert_eq!(old_pos.offset, 32);
     }
 
     #[test]
@@ -105,7 +124,7 @@ mod tests {
                 offset: 32,
             },
         );
-        assert_eq!(ret1, true);
+        assert_eq!(ret1.is_none(), true);
 
         let pos = bt.get("ret1".as_bytes().to_vec());
         assert!(pos.is_some());
@@ -134,10 +153,13 @@ mod tests {
                 offset: 32,
             },
         );
-        assert_eq!(ret1, true);
+        assert_eq!(ret1.is_none(), true);
 
         let delete_ret = bt.delete("ret1".as_bytes().to_vec());
-        assert_eq!(delete_ret, true);
+        assert_eq!(delete_ret.is_some(), true);
+        let delete_pos = delete_ret.unwrap();
+        assert_eq!(delete_pos.file_id, 1);
+        assert_eq!(delete_pos.offset, 32);
 
         let pos1 = bt.get("ret1".as_bytes().to_vec());
         assert!(pos1.is_none());
@@ -148,7 +170,7 @@ mod tests {
         let bt = SkipList::new();
 
         let delete_ret = bt.delete("ret1".as_bytes().to_vec());
-        assert_eq!(delete_ret, false);
+        assert_eq!(delete_ret.is_none(), true);
 
         let pos1 = bt.get("ret1".as_bytes().to_vec());
         assert!(pos1.is_none());

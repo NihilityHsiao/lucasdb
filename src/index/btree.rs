@@ -22,10 +22,9 @@ impl BTree {
 }
 
 impl Indexer for BTree {
-    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> bool {
+    fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> Option<LogRecordPos> {
         let mut write_guard = self.tree.write();
-        write_guard.insert(key, pos);
-        true
+        write_guard.insert(key, pos)
     }
 
     fn get(&self, key: Vec<u8>) -> Option<LogRecordPos> {
@@ -33,10 +32,9 @@ impl Indexer for BTree {
         read_guard.get(&key).copied()
     }
     /// 删除key,key不存在返回false
-    fn delete(&self, key: Vec<u8>) -> bool {
+    fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos> {
         let mut write_guard = self.tree.write();
-        let remove_res = write_guard.remove(&key);
-        remove_res.is_some()
+        write_guard.remove(&key)
     }
 
     fn iterator(&self, options: crate::options::IteratorOptions) -> Box<dyn IndexIterator> {
@@ -82,7 +80,7 @@ mod tests {
             },
         );
 
-        assert_eq!(ret1, true);
+        assert_eq!(true, ret1.is_none());
 
         let ret2 = bt.put(
             "ret2".as_bytes().to_vec(),
@@ -92,7 +90,19 @@ mod tests {
             },
         );
 
-        assert_eq!(ret2, true);
+        assert_eq!(true, ret2.is_none());
+
+        let ret1 = bt.put(
+            "ret1".as_bytes().to_vec(),
+            LogRecordPos {
+                file_id: 1,
+                offset: 32,
+            },
+        );
+        assert_eq!(true, ret1.is_some());
+        let pos = ret1.unwrap();
+        assert_eq!(1, pos.file_id);
+        assert_eq!(32, pos.offset);
     }
 
     #[test]
@@ -105,7 +115,7 @@ mod tests {
                 offset: 32,
             },
         );
-        assert_eq!(ret1, true);
+        assert_eq!(ret1.is_none(), true);
 
         let pos = bt.get("ret1".as_bytes().to_vec());
         assert!(pos.is_some());
@@ -134,10 +144,13 @@ mod tests {
                 offset: 32,
             },
         );
-        assert_eq!(ret1, true);
+        assert_eq!(ret1.is_none(), true);
 
         let delete_ret = bt.delete("ret1".as_bytes().to_vec());
-        assert_eq!(delete_ret, true);
+        assert_eq!(delete_ret.is_some(), true);
+        let delete_pos = delete_ret.unwrap();
+        assert_eq!(delete_pos.file_id, 1);
+        assert_eq!(delete_pos.offset, 32);
 
         let pos1 = bt.get("ret1".as_bytes().to_vec());
         assert!(pos1.is_none());
@@ -148,7 +161,7 @@ mod tests {
         let bt = BTree::new();
 
         let delete_ret = bt.delete("ret1".as_bytes().to_vec());
-        assert_eq!(delete_ret, false);
+        assert_eq!(delete_ret.is_none(), true);
 
         let pos1 = bt.get("ret1".as_bytes().to_vec());
         assert!(pos1.is_none());
