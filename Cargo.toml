@@ -33,3 +33,7 @@ path = 'examples/write_batch.rs'
 [[example]]
 name = "merge"
 path = 'examples/merge.rs'
+
+
+[workspace]
+members = ["http"]
