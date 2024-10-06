@@ -21,6 +21,7 @@ use crate::{
     merge::load_merge_files,
     options::EngineOptions,
     prelude::*,
+    stat::Stat,
     utils,
 };
 use bytes::Bytes;
@@ -503,6 +504,17 @@ impl Engine {
 
         Ok(seq_no)
     }
+
+    pub fn stat(&self) -> Result<Stat> {
+        let keys = self.list_keys()?;
+        let older_files = self.older_files.read();
+        Ok(Stat {
+            key_num: keys.len(),
+            data_file_num: older_files.len(),
+            reclaim_size: self.reclaim_size.load(Ordering::SeqCst),
+            disk_size: 0,
+        })
+    }
 }
 
 // 析构
@@ -796,6 +808,61 @@ mod tests {
         match err {
             Errors::DatabaseIsUsing => {}
             _ => panic!("unexpected error: {:?}", err),
+        }
+
+        clean(&dir_name);
+    }
+
+    #[test]
+    fn test_db_stat() {
+        let dir_name = "db_stat";
+        setup(&dir_name);
+
+        // 初始化数据库
+        let mut opts = EngineOptions::default();
+        opts.dir_path = basepath().join(dir_name);
+
+        let db = Engine::open(opts.clone()).expect("failed to open engine");
+
+        let get_kv = |x: usize| -> (Bytes, Bytes) {
+            let key = Bytes::copy_from_slice(format!("test_key_{}", x).as_bytes());
+            let value = Bytes::copy_from_slice(format!("test_value_{}", x).as_bytes());
+
+            (key, value)
+        };
+
+        // 写入测试数据
+        {
+            for i in 0..=100000 {
+                let (key, value) = get_kv(i);
+                let ret = db.put(key, value);
+                assert_eq!(true, ret.is_ok());
+            }
+        }
+
+        // 删除数据
+        {
+            for i in 2000..=5000 {
+                let (key, _) = get_kv(i);
+                let ret = db.delete(key);
+                assert_eq!(true, ret.is_ok());
+            }
+        }
+
+        // 持久化db
+        {
+            let ret = db.sync();
+            assert_eq!(true, ret.is_ok());
+        }
+
+        // 获取db状态
+        {
+            let stat = db.stat();
+            assert!(stat.is_ok());
+            let stat = stat.unwrap();
+            println!("stat: {:#?}", stat);
+
+            assert!(stat.reclaim_size > 0);
         }
 
         clean(&dir_name);

@@ -8,6 +8,6 @@ pub mod iterator;
 mod merge;
 pub mod options;
 mod prelude;
+mod stat;
 mod utils;
-
 pub use batch::batch::*;
