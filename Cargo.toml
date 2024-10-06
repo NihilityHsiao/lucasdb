@@ -29,3 +29,7 @@ path = 'examples/basic_operations.rs'
 [[example]]
 name = "write_batch"
 path = 'examples/write_batch.rs'
+
+[[example]]
+name = "merge"
+path = 'examples/merge.rs'
