@@ -26,7 +26,7 @@ use crate::{
 };
 use bytes::Bytes;
 use fs2::FileExt;
-use log::error;
+use log::{error, warn};
 use parking_lot::{Mutex, RwLock};
 
 const INITIAL_FILE_ID: u32 = 0;
@@ -97,7 +97,7 @@ impl Engine {
         let mut older_files = HashMap::new();
         if data_files.len() > 1 {
             // 处理旧的数据文件
-            for _ in 0..data_files.len() - 2 {
+            for _ in 0..=data_files.len() - 2 {
                 let file = data_files.pop().unwrap();
                 older_files.insert(file.get_file_id(), file);
             }
@@ -360,8 +360,13 @@ impl Engine {
                 let log_record_res = match *file_id == active_file.get_file_id() {
                     true => active_file.read_log_record(offset),
                     false => {
-                        // todo: 删掉unwrap
-                        let data_file = older_files.get(file_id).unwrap();
+                        let data_file = match older_files.get(file_id) {
+                            Some(file) => file,
+                            None => {
+                                warn!("can't find file_id [{}] in older files", file_id);
+                                continue;
+                            }
+                        };
                         data_file.read_log_record(offset)
                     }
                 };
