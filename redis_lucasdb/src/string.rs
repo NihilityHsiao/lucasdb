@@ -70,3 +70,67 @@ impl RedisLucasDb {
         Ok(Some(String::from_utf8(value).unwrap()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, time::Duration};
+
+    use lucasdb::options::EngineOptions;
+
+    use super::*;
+
+    fn basepath() -> PathBuf {
+        "../tmp/redis".into()
+    }
+
+    fn setup(name: &str) -> (RedisLucasDb, EngineOptions) {
+        clean(name);
+        // 创建测试文件夹
+        let path = PathBuf::from(basepath()).join(name);
+        if !path.exists() {
+            match std::fs::create_dir_all(&path) {
+                Ok(_) => {}
+                Err(e) => {
+                    panic!("error creating directory: {}", e)
+                }
+            }
+        }
+
+        let mut opts = EngineOptions::default();
+        opts.dir_path = path;
+        let redis = RedisLucasDb::new(opts.clone()).expect("failed to create database");
+        (redis, opts)
+    }
+
+    fn clean(name: &str) {
+        let _ = std::fs::remove_dir_all(basepath().join(name));
+    }
+
+    #[test]
+    fn test_string_get_and_set_no_ttl() {
+        let name = "get_and_set";
+        let (db, _) = setup(name);
+
+        let set_res = db.set("key1", Duration::ZERO, "value1");
+        assert!(set_res.is_ok());
+
+        let set_res = db.set("key2", Duration::ZERO, "value2");
+        assert!(set_res.is_ok());
+
+        let get_res = db.get("key1");
+        assert!(get_res.is_ok());
+        let get_option = get_res.unwrap();
+        assert!(get_option.is_some());
+        let value = get_option.unwrap();
+        assert_eq!(value, "value1");
+
+        let get_res = db.get("key2");
+        assert!(get_res.is_ok());
+        let get_option = get_res.unwrap();
+        assert!(get_option.is_some());
+        let value = get_option.unwrap();
+        assert_eq!(value, "value2");
+
+        clean(name);
+    }
+}
