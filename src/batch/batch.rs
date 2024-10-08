@@ -9,9 +9,8 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use parking_lot::Mutex;
-use prost::{decode_length_delimiter, encode_length_delimiter};
 
 use super::log_record_key_with_seq;
 

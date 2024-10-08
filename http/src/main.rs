@@ -9,7 +9,6 @@ use axum::{
     Json, Router,
 };
 use lucasdb::{db::Engine, options::EngineOptions};
-use serde_json::{json, Value};
 
 async fn ping() -> &'static str {
     return "ping";
