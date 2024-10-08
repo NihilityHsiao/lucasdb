@@ -72,4 +72,7 @@ pub enum Errors {
 
     #[error("failed to copy database directory")]
     FailedToBackupDatabase,
+
+    #[error("wrong type operation, expected:{}, actual:{}", expected, actual)]
+    WrongTypeOperation { expected: String, actual: String },
 }

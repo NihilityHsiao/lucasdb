@@ -1,0 +1,9 @@
+[package]
+name = "redis_lucasdb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1.7.2"
+prost = "0.13.3"
+lucasdb = { path = "../../lucasdb" }
