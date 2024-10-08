@@ -1,3 +1,5 @@
+pub type Result<T> = std::result::Result<T, Errors>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Errors {
     #[error(transparent)]
