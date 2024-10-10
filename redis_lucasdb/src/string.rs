@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     fn basepath() -> PathBuf {
-        "../tmp/redis".into()
+        "../tmp/redis_lucasdb/string".into()
     }
 
     fn setup(name: &str) -> (RedisLucasDb, EngineOptions) {
