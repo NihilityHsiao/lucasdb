@@ -39,6 +39,10 @@ path = 'examples/write_batch.rs'
 name = "merge"
 path = 'examples/merge.rs'
 
+[[example]]
+name = "iterator"
+path = 'examples/iterator.rs'
+
 [[bench]]
 name = "kv_bench"
 harness = false
