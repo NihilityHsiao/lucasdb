@@ -2,6 +2,7 @@ use bytes::Bytes;
 
 pub mod generic;
 pub mod hash;
+pub mod list;
 pub(crate) mod metadata;
 pub mod set;
 pub mod string;
