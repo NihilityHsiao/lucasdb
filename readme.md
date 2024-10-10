@@ -19,7 +19,7 @@ LogRecord 的编码格式如下：
 - **能够处理大于内存的数据**: value 都存放在磁盘中,内存只存放 key 以及位置索引信息。
 - **崩溃恢复快速**: lucasdb的数据文件都是追加写入,启动时候会校验数据,确保数据一致。
 - **备份简单**: 只需要将数据文件拷贝到任意目录,即可备份整个数据库
-
+- **支持迭代器**
 
 # Gettings Started
 ## 基本操作
@@ -117,7 +117,53 @@ fn main() {
     }
 }
 ```
+## 迭代器
+```rust
+use bytes::Bytes;
+use lucasdb::{
+    db::Engine,
+    options::{EngineOptions, IndexType, IteratorOptions},
+};
+fn get_test_kv(i: usize) -> (Bytes, Bytes) {
+    let key = Bytes::copy_from_slice(format!("test_lucas_db_key_{:09}", i).as_bytes());
+    let value = Bytes::copy_from_slice(format!("test_lucas_db_value_{:09}", i).as_bytes());
 
+    (key, value)
+}
+fn main() {
+    let opts = EngineOptions::builder()
+        .dir_path("./tmp/examples".into())
+        .data_file_size(256 * 1024 * 1024)
+        .sync_writes(false)
+        .index_type(IndexType::BTree)
+        .bytes_per_sync(0)
+        .use_mmap_when_startup(true)
+        .data_file_merge_ratio(0f32)
+        .build();
+
+    let db = Engine::open(opts.clone()).expect("failed to open database");
+
+    // 写入数据
+    let begin = 0;
+    let end = 10;
+    {
+        for i in begin..end {
+            let (key, value) = get_test_kv(i);
+            let put_res = db.put(key, value);
+            assert!(put_res.is_ok());
+        }
+    }
+
+    // 迭代器遍历
+    let it = db.iter(IteratorOptions::default());
+    while let Some((key, value)) = it.next() {
+        let key = String::from_utf8(key.to_vec()).unwrap();
+        let value = String::from_utf8(value.to_vec()).unwrap();
+        println!("key: {:?},  value:{:?}", key, value);
+    }
+}
+
+```
 
 # benches
 ```bash
