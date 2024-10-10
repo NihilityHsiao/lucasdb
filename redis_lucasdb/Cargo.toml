@@ -6,4 +6,6 @@ edition = "2021"
 [dependencies]
 bytes = "1.7.2"
 prost = "0.13.3"
+redcon = "0.1.2"
+
 lucasdb = { path = "../../lucasdb" }
