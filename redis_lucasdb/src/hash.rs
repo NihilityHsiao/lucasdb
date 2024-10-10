@@ -35,7 +35,12 @@ impl EncodeAndDecode for HashInternalKey {
 
 impl RedisLucasDb {
     /// 根据 hash 的 key 查找元数据
-    fn find_metadata(&self, key: &str, data_type: RedisDataType) -> Result<Metadata> {
+    /// 如果 key 不存在,则创建一个新的元数据并返回
+    pub(crate) fn find_or_new_metadata(
+        &self,
+        key: &str,
+        data_type: RedisDataType,
+    ) -> Result<Metadata> {
         let mut exist = true;
         let mut meta = None;
         match self.eng.get(Bytes::copy_from_slice(key.as_bytes())) {
@@ -96,7 +101,7 @@ impl RedisLucasDb {
 
     pub fn hset(&self, key: &str, field: &str, value: &str) -> Result<bool> {
         // 查询元数据
-        let mut meta = self.find_metadata(key, RedisDataType::Hash)?;
+        let mut meta = self.find_or_new_metadata(key, RedisDataType::Hash)?;
         // 构造数据部分的key
         let internal_key = HashInternalKey {
             key: key.as_bytes().to_vec(),
@@ -131,7 +136,7 @@ impl RedisLucasDb {
 
     /// 当key/field不存在,返回 KeyNotFound
     pub fn hget(&self, key: &str, field: &str) -> Result<Option<String>> {
-        let meta = self.find_metadata(key, RedisDataType::Hash)?;
+        let meta = self.find_or_new_metadata(key, RedisDataType::Hash)?;
         if meta.size == 0 {
             return Ok(None);
         }
@@ -150,7 +155,7 @@ impl RedisLucasDb {
 
     ///
     pub fn hdel(&self, key: &str, field: &str) -> Result<bool> {
-        let mut meta = self.find_metadata(key, RedisDataType::Hash)?;
+        let mut meta = self.find_or_new_metadata(key, RedisDataType::Hash)?;
         if meta.size == 0 {
             return Ok(false);
         }
